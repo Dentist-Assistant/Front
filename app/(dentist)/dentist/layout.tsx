@@ -15,9 +15,8 @@ export const metadata: Metadata = { title: "Dentist | Dentist Assistant" };
 
 export default async function DentistLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
   if (!user) redirect("/login");
 
   let role =
@@ -29,10 +28,11 @@ export default async function DentistLayout({ children }: { children: React.Reac
       .from("profiles")
       .select("role")
       .eq("id", user.id)
-      .single();
-    role = normalizeRole(profile?.role);
+      .maybeSingle<{ role: string | null }>();
+    role = normalizeRole(profile?.role ?? null) ?? "dentist";
   }
-  if (!(role === "dentist" || role === "admin")) redirect("/");
+
+  if (role !== "dentist" && role !== "admin") redirect("/");
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]">
@@ -41,11 +41,8 @@ export default async function DentistLayout({ children }: { children: React.Reac
           <SubnavDentist />
         </div>
       </div>
-
       <main className="container-app">
-        <div className="w-full max-w-none px-6 pb-10">
-          {children}
-        </div>
+        <div className="w-full max-w-none px-6 pb-10">{children}</div>
       </main>
     </div>
   );

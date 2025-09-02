@@ -30,13 +30,12 @@ type Options = {
   initialSort?: SortKey;
 };
 
-type QueryRow = {
+type BaseRow = {
   id: string;
   title: string | null;
   status: string | null;
   created_at: string;
   assigned_tech: string | null;
-  images: { id: string }[] | null;
 };
 
 export default function useCases(options?: Options) {
@@ -51,24 +50,21 @@ export default function useCases(options?: Options) {
 
   const fetchList = useCallback(async () => {
     setState((s) => ({ ...s, isLoading: true, error: null }));
+
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData.user?.id ?? null;
+
     let q = supabase
       .from("cases")
-      .select(
-        `
-        id,
-        title,
-        status,
-        created_at,
-        assigned_tech,
-        images:case_images(id)
-      `,
-        { count: "exact" }
-      );
+      .select("id,title,status,created_at,assigned_tech", { count: "planned" });
 
-    if (query.trim().length > 0) {
+    if (uid) {
+      q = q.or(`created_by.eq.${uid},assigned_tech.eq.${uid}`);
+    }
+    if (query.trim()) {
       q = q.ilike("title", `%${query.trim()}%`);
     }
     if (status !== "all") {
@@ -77,27 +73,45 @@ export default function useCases(options?: Options) {
 
     q = q.order("created_at", { ascending: sort === "created_at_asc" }).range(from, to);
 
-    const { data, error, count } = await (q as unknown as Promise<{
-      data: QueryRow[] | null;
-      error: { message: string } | null;
-      count: number | null;
-    }>);
-
-    if (error) {
-      setState({ items: [], total: 0, isLoading: false, error: error.message });
+    const { data: baseRows, error: e1, count } = await q;
+    if (e1) {
+      setState({ items: [], total: 0, isLoading: false, error: e1.message });
       return;
     }
 
-    const items: CaseListItem[] = (data ?? []).map((row: QueryRow) => ({
-      id: String(row.id),
-      title: row.title ?? null,
-      status: row.status ?? null,
-      created_at: String(row.created_at),
-      assigned_tech: row.assigned_tech ?? null,
-      images_count: Array.isArray(row.images) ? row.images.length : 0,
+    const base = (baseRows ?? []) as BaseRow[];
+    const ids = base.map((r) => r.id);
+
+    let imagesCountByCase = new Map<string, number>();
+    if (ids.length) {
+      const { data: imgs, error: e2 } = await supabase
+        .from("case_images")
+        .select("id,case_id")
+        .in("case_id", ids);
+
+      if (!e2) {
+        (imgs ?? []).forEach((row: any) => {
+          const k = String(row.case_id);
+          imagesCountByCase.set(k, (imagesCountByCase.get(k) ?? 0) + 1);
+        });
+      }
+    }
+
+    const items: CaseListItem[] = base.map((r) => ({
+      id: String(r.id),
+      title: r.title ?? null,
+      status: r.status ?? null,
+      created_at: String(r.created_at),
+      assigned_tech: r.assigned_tech ?? null,
+      images_count: imagesCountByCase.get(r.id) ?? 0,
     }));
 
-    setState({ items, total: count ?? 0, isLoading: false, error: null });
+    setState({
+      items,
+      total: typeof count === "number" ? count : items.length,
+      isLoading: false,
+      error: null,
+    });
   }, [page, pageSize, query, status, sort, supabase]);
 
   useEffect(() => {
@@ -167,4 +181,3 @@ export default function useCases(options?: Options) {
     isEmpty: !state.isLoading && state.items.length === 0,
   };
 }
-  
