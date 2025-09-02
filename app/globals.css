@@ -1,0 +1,226 @@
+@import "tailwindcss";
+@reference "tailwindcss";
+
+/* ---------- Theme Tokens ---------- */
+:root {
+  --color-bg: #F3F6FB;
+  --color-surface: #FFFFFF;
+  --color-primary: #06B6D4;
+  --color-primary-foreground: #06141F;
+  --color-accent: #818CF8;
+  --color-success: #16A34A;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+  --color-text: #0F172A;
+  --color-muted: #667085;
+
+  --radius: 0.9rem;
+  --radius-2xl: 1.2rem;
+  --shadow-soft: 0 1px 2px rgba(2,6,23,.06), 0 12px 30px rgba(2,6,23,.08);
+  --border-alpha: rgba(2,6,23,.10);
+
+  --container-max: 1280px;       /* wider page to avoid cramped feel */
+  --container-pad-x: 1.25rem;    /* 20px default */
+  --container-pad-x-lg: 2rem;    /* 32px on lg+ */
+}
+
+:root { color-scheme: light; }
+
+/* ---------- Base ---------- */
+html, body { height: 100%; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "rlig" 1, "calt" 1;
+  text-rendering: optimizeLegibility;
+  line-height: 1.6;              /* more breathing room */
+  font-size: 15px;               /* slightly larger default text */
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-primary) 24%, transparent);
+  color: var(--color-text);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-primary),
+    0 0 0 4px var(--color-surface);
+}
+
+* { border-color: var(--border-alpha); }
+
+/* Scrollbars */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(2,6,23,.16);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Layout Helpers ---------- */
+.container-page {
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  max-width: var(--container-max);
+  padding-left: var(--container-pad-x);
+  padding-right: var(--container-pad-x);
+}
+@media (min-width: 1024px) {
+  .container-page {
+    padding-left: var(--container-pad-x-lg);
+    padding-right: var(--container-pad-x-lg);
+  }
+}
+
+.toolbar {
+  @apply flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4;
+}
+
+.empty {
+  @apply flex flex-col items-center justify-center gap-3 rounded-2xl border bg-white p-12 text-center text-[var(--color-muted)];
+}
+
+.skeleton { @apply animate-pulse rounded-lg bg-black/5; }
+
+.muted { color: var(--color-muted); }
+
+/* ---------- Cards ---------- */
+.card { @apply rounded-xl border bg-[var(--color-surface)] shadow-[var(--shadow-soft)]; padding: 1.25rem; }
+.card-lg { @apply rounded-2xl border bg-[var(--color-surface)] shadow-[var(--shadow-soft)]; padding: 2rem; }
+
+.card-lg > .card-header { margin-bottom: 0.75rem; }
+.card-lg > .card-body { margin-top: 0.25rem; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+.btn-primary { color: var(--color-primary-foreground); background: var(--color-primary); }
+.btn-primary:hover { filter: brightness(1.03); }
+
+.btn-outline { @apply border; background: #fff; color: var(--color-text); }
+.btn-outline:hover {
+  background: color-mix(in oklab, var(--color-primary) 10%, #ffffff);
+  border-color: color-mix(in oklab, var(--color-primary) 32%, var(--border-alpha));
+}
+
+.btn-ghost { background: transparent; color: var(--color-text); }
+.btn-ghost:hover { background: rgba(2,6,23,.05); }
+
+.btn-success { color: #0B3D24; background: color-mix(in oklab, var(--color-success) 18%, #fff); border: 1px solid color-mix(in oklab, var(--color-success) 50%, var(--border-alpha)); }
+.btn-success:hover { filter: brightness(1.02); }
+
+/* ---------- Inputs ---------- */
+.input, .select, .textarea {
+  @apply w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm placeholder:text-[var(--color-muted)] transition-colors duration-200;
+}
+.input:hover, .select:hover, .textarea:hover { @apply border-black/10; }
+.input:focus, .select:focus, .textarea:focus {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-primary),
+    0 0 0 4px #fff;
+}
+.textarea { line-height: 1.55; min-height: 120px; resize: vertical; }
+
+.label { @apply mb-1 block text-xs font-medium text-[var(--color-muted)]; }
+.help { @apply mt-1 text-xs text-[var(--color-muted)]; }
+
+/* Range (confidence filter) */
+.range {
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(2,6,23,.08);
+  outline: none;
+}
+.range::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px; height: 18px; border-radius: 999px; background: var(--color-primary);
+  border: 2px solid #fff; box-shadow: 0 1px 2px rgba(2,6,23,.15);
+}
+.range::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 999px; background: var(--color-primary);
+  border: 2px solid #fff; box-shadow: 0 1px 2px rgba(2,6,23,.15);
+}
+
+/* ---------- Badges ---------- */
+.badge { @apply inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium; }
+.badge-muted { @apply border-black/10 text-[var(--color-muted)]; }
+.badge-success { background: color-mix(in oklab, var(--color-success) 10%, #fff); border-color: color-mix(in oklab, var(--color-success) 40%, var(--border-alpha)); color: #065F46; }
+.badge-warning { background: color-mix(in oklab, var(--color-warning) 10%, #fff); border-color: color-mix(in oklab, var(--color-warning) 40%, var(--border-alpha)); color: #92400E; }
+.badge-danger  { background: color-mix(in oklab, var(--color-danger)  10%, #fff); border-color: color-mix(in oklab, var(--color-danger)  40%, var(--border-alpha)); color: #7F1D1D; }
+.badge-accent  { background: color-mix(in oklab, var(--color-accent)  12%, #fff); border-color: color-mix(in oklab, var(--color-accent)  40%, var(--border-alpha)); color: #4C1D95; }
+
+/* ---------- Tables ---------- */
+.table { @apply w-full border-separate border-spacing-0 text-sm; table-layout: fixed; }
+.table thead th {
+  @apply sticky top-0 z-10 px-3 py-2 text-left font-semibold text-[13px] backdrop-blur;
+  background: #ffffffF2;
+  color: var(--color-muted);
+}
+.table tbody td { @apply border-t px-3 py-2 align-top; }
+.table tbody tr:hover { @apply bg-black/5; }
+
+/* wider, less-cramped cells on large screens */
+@media (min-width: 1024px) {
+  .table tbody td { padding-top: 12px; padding-bottom: 12px; }
+}
+
+/* ---------- Dialog (preview) helpers ---------- */
+.dialog-overlay { position: fixed; inset: 0; background: rgba(2,6,23,.35); backdrop-filter: blur(2px); }
+.dialog-panel {
+  position: fixed; right: 0; top: 0; bottom: 0; width: min(960px, 100%);
+  background: #fff; border-left: 1px solid var(--border-alpha);
+  box-shadow: -8px 0 24px rgba(2,6,23,.12);
+}
+
+/* ---------- Print (A4-friendly) ---------- */
+@media print {
+  :root {
+    --color-bg: #FFFFFF;
+  }
+  html, body { background: #fff !important; }
+  .container-page { max-width: 100% !important; padding: 0 10mm !important; }
+
+  /* remove visual noise */
+  .card, .card-lg {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  /* hide interactive chrome on print */
+  .btn, .toolbar, .empty, .no-print, [data-no-print="true"] { display: none !important; }
+
+  /* tables: no sticky headers on paper */
+  .table thead th { position: static !important; background: #fff !important; backdrop-filter: none !important; }
+
+  /* avoid cramped margins and ensure page breaks */
+  .print-page-break { page-break-before: always; }
+  .print-avoid-break { break-inside: avoid; page-break-inside: avoid; }
+
+  /* images scale to fit */
+  img { max-width: 100% !important; height: auto !important; }
+
+  /* high-contrast links */
+  a { color: #000; text-decoration: underline; }
+}
+
+/* ---------- Utility spacing to prevent cramped UI ---------- */
+.section-stack > * + * { margin-top: 1.25rem; }
+.block-stack > * + * { margin-top: .75rem; }
+
+/* ---------- Optional helper (sticky action bar safety) ---------- */
+body { padding-bottom: 90px; } /* space for sticky bottom bars */
