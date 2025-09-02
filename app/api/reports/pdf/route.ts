@@ -666,14 +666,22 @@ export async function POST(req: Request) {
         ? latestVersion
         : latestVersion;
 
-    return new Response(pdf, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="case-${caseId}-packet-v${nameDraft}-v${nameReb}.pdf"`,
-        "Cache-Control": "no-store",
-      },
-    });
+const copy = new Uint8Array(pdf.byteLength);
+copy.set(pdf); 
+
+const blob = new Blob([copy.buffer], { type: "application/pdf" });
+
+return new Response(blob, {
+  status: 200,
+  headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": `attachment; filename="case-${caseId}-packet-v${nameDraft}-v${nameReb}.pdf"`,
+    "Cache-Control": "no-store",
+  },
+});
+
+
+
   } catch (e: any) {
     return NextResponse.json({ error: "pdf_failed", details: e?.message || "Unexpected error" }, { status: 500 });
   } finally {

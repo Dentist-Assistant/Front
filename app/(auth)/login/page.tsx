@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseBrowser } from "../../../lib/supabaseBrowser";
@@ -14,7 +14,7 @@ function normalizeRole(input?: unknown): Role | null {
   return null;
 }
 
-export default function LoginPage() {
+function LoginInner() {
   const router = useRouter();
   const search = useSearchParams();
 
@@ -29,31 +29,7 @@ export default function LoginPage() {
     setSupabase(getSupabaseBrowser());
   }, []);
 
-  useEffect(() => {
-    if (!supabase) return;
-    let cancelled = false;
-
-    const run = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session || cancelled) return;
-
-      await fetch("/api/auth/set-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-        }),
-      });
-
-      await goByRole(supabase);
-    };
-
-    run();
-    return () => { cancelled = true; };
-  }, [supabase]);
-
-  const goByRole = async (sb: SupabaseClient) => {
+  const goByRole = useCallback(async (sb: SupabaseClient) => {
     const next = search.get("next");
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
@@ -77,9 +53,33 @@ export default function LoginPage() {
     }
 
     router.replace(role === "tech" ? "/tech" : "/dentist");
-  };
+  }, [router, search]);
 
-  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    if (!supabase) return;
+    let cancelled = false;
+
+    const run = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || cancelled) return;
+
+      await fetch("/api/auth/set-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        }),
+      });
+
+      await goByRole(supabase);
+    };
+
+    run();
+    return () => { cancelled = true; };
+  }, [supabase, goByRole]);
+
+  const onSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!supabase) return;
     setErr(null);
@@ -121,7 +121,7 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [supabase, mode, email, password, goByRole]);
 
   return (
     <div className="container-page grid min-h-dvh place-items-center py-10">
@@ -197,5 +197,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Cargando…</div>}>
+      <LoginInner />
+    </Suspense>
   );
 }
