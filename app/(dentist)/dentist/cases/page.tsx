@@ -28,30 +28,34 @@ export default function DentistCasesPage() {
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
 
-  const rows: CaseRow[] = items || [];
+  const rows: CaseRow[] = Array.isArray(items) ? items : [];
 
   const result = useMemo(() => {
     const query = q.trim().toLowerCase();
 
     let out = rows.filter((r) => {
-      const matchesText =
-        !query ||
-        r.id.toLowerCase().includes(query) ||
-        (r.title || "").toLowerCase().includes(query) ||
-        (r.status || "").toLowerCase().includes(query);
-
+      const t = (r.title || "").toLowerCase();
+      const s = (r.status || "").toLowerCase();
+      const matchesText = !query || r.id.toLowerCase().includes(query) || t.includes(query) || s.includes(query);
       const matchesStatus = status === "all" ? true : (r.status || "") === status;
       return matchesText && matchesStatus;
     });
 
-    out = out.sort((a, b) => {
+    out = out.slice().sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
-      const av = (a[sortKey] || "") as string;
-      const bv = (b[sortKey] || "") as string;
 
       if (sortKey === "created_at") {
-        return (new Date(av).getTime() - new Date(bv).getTime()) * dir;
+        const at = Date.parse(String(a.created_at || ""));
+        const bt = Date.parse(String(b.created_at || ""));
+        const aNum = Number.isFinite(at) ? at : 0;
+        const bNum = Number.isFinite(bt) ? bt : 0;
+        if (aNum === bNum) return 0;
+        return aNum < bNum ? -1 * dir : 1 * dir;
       }
+
+      const av = String(a[sortKey] || "");
+      const bv = String(b[sortKey] || "");
+      if (av === bv) return 0;
       return av.localeCompare(bv) * dir;
     });
 
@@ -67,46 +71,37 @@ export default function DentistCasesPage() {
   };
 
   const onCreateCase = async () => {
-    if (!newTitle.trim()) return;
+    if (!newTitle.trim() || creating) return;
     setCreating(true);
     const payload: Record<string, unknown> = { title: newTitle.trim() };
     if (newDesc.trim()) payload.description = newDesc.trim();
 
-    const r = await createCase(payload);
+    const r = await createCase(payload).catch(() => ({ ok: false as const }));
     setCreating(false);
 
-    if (r.ok && (r.data as any)?.id) {
+    const createdId = (r as any)?.data?.id;
+    if (r && (r as any).ok && createdId) {
       setNewTitle("");
       setNewDesc("");
-      router.push(`/dentist/cases/${(r.data as any).id}`);
+      router.push(`/dentist/cases/${createdId}`);
     } else {
       await refresh();
     }
   };
 
   const SortIcon = ({ active, dir }: { active: boolean; dir: SortDir }) =>
-    active ? (
-      dir === "asc" ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
-    ) : (
-      <ChevronUp className="h-4 w-4 opacity-40" />
-    );
+    active ? (dir === "asc" ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />) : <ChevronUp className="h-4 w-4 opacity-40" />;
 
   return (
     <>
       <header className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
         <div className="space-y-1">
           <h1 className="text-xl font-semibold">Cases</h1>
-          <p className="text-sm muted">
-            {isLoading ? "Loading…" : `${result.length} of ${rows.length} cases`}
-          </p>
+          <p className="text-sm muted">{isLoading ? "Loading…" : `${result.length} of ${rows.length} cases`}</p>
         </div>
 
         <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center">
-          <button
-            className="btn btn-outline inline-flex items-center gap-2"
-            onClick={refresh}
-            aria-label="Refresh"
-          >
+          <button className="btn btn-outline inline-flex items-center gap-2" onClick={refresh} aria-label="Refresh" disabled={isLoading}>
             <RefreshCcw className="h-4 w-4" />
             <span>Refresh</span>
           </button>
@@ -160,13 +155,7 @@ export default function DentistCasesPage() {
             <label htmlFor="status" className="label m-0">
               Status
             </label>
-            <select
-              id="status"
-              className="select"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              aria-label="Filter by status"
-            >
+            <select id="status" className="select" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
               <option value="all">All</option>
               <option value="DRAFT">DRAFT</option>
               <option value="TECH_REVIEWED">TECH_REVIEWED</option>
@@ -212,29 +201,17 @@ export default function DentistCasesPage() {
               <thead className="sticky top-0 bg-[var(--color-surface)]/80 backdrop-blur">
                 <tr>
                   <th className="w-[46%]">
-                    <button
-                      className="inline-flex items-center gap-1"
-                      onClick={() => onSort("title")}
-                      aria-label="Sort by title"
-                    >
+                    <button className="inline-flex items-center gap-1" onClick={() => onSort("title")} aria-label="Sort by title">
                       Title <SortIcon active={sortKey === "title"} dir={sortDir} />
                     </button>
                   </th>
                   <th className="w-[18%]">
-                    <button
-                      className="inline-flex items-center gap-1"
-                      onClick={() => onSort("status")}
-                      aria-label="Sort by status"
-                    >
+                    <button className="inline-flex items-center gap-1" onClick={() => onSort("status")} aria-label="Sort by status">
                       Status <SortIcon active={sortKey === "status"} dir={sortDir} />
                     </button>
                   </th>
                   <th className="w-[24%]">
-                    <button
-                      className="inline-flex items-center gap-1"
-                      onClick={() => onSort("created_at")}
-                      aria-label="Sort by created date"
-                    >
+                    <button className="inline-flex items-center gap-1" onClick={() => onSort("created_at")} aria-label="Sort by created date">
                       Created <SortIcon active={sortKey === "created_at"} dir={sortDir} />
                     </button>
                   </th>
@@ -246,7 +223,7 @@ export default function DentistCasesPage() {
                   <tr
                     key={r.id}
                     className="cursor-pointer"
-                    onClick={() => router.push(`/dentist/cases/${r.id}`)}
+                    onClick={() => r.id && router.push(`/dentist/cases/${r.id}`)}
                     aria-label={`Open ${r.title || r.id}`}
                   >
                     <td className="font-medium">
@@ -256,15 +233,13 @@ export default function DentistCasesPage() {
                     <td>
                       <span className="badge">{r.status || "DRAFT"}</span>
                     </td>
-                    <td className="text-sm">
-                      {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
-                    </td>
+                    <td className="text-sm">{r.created_at ? new Date(r.created_at).toLocaleString() : "—"}</td>
                     <td>
                       <button
                         className="btn btn-primary inline-flex items-center gap-2"
                         onClick={(e) => {
                           e.stopPropagation();
-                          router.push(`/dentist/cases/${r.id}`);
+                          r.id && router.push(`/dentist/cases/${r.id}`);
                         }}
                       >
                         <Eye className="h-4 w-4" />
