@@ -1,5 +1,6 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { createClient } from "../../../lib/supabaseServer"; 
+import { createClient } from "../../../lib/supabaseServer";
 import SubnavTech from "./SubnavTech";
 
 function normalizeRole(input?: unknown): "dentist" | "tech" | "admin" | null {
@@ -10,16 +11,12 @@ function normalizeRole(input?: unknown): "dentist" | "tech" | "admin" | null {
   return null;
 }
 
-export const metadata = {
-  title: "Tech | Dentist Assistant",
-};
+export const metadata: Metadata = { title: "Tech | Dentist Assistant" };
 
 export default async function TechLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
   if (!user) redirect("/login");
 
   let role =
@@ -31,24 +28,21 @@ export default async function TechLayout({ children }: { children: React.ReactNo
       .from("profiles")
       .select("role")
       .eq("id", user.id)
-      .single();
-    role = normalizeRole(profile?.role);
+      .maybeSingle<{ role: string | null }>();
+    role = normalizeRole(profile?.role ?? null) ?? "tech";
   }
 
-  if (!(role === "tech" || role === "admin")) {
-    redirect("/");
-  }
+  if (role !== "tech" && role !== "admin") redirect("/");
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]">
       <div className="container-app">
-        <div className="mx-auto max-w-6xl px-4 pt-4">
+        <div className="w-full max-w-none px-6 pt-4">
           <SubnavTech />
         </div>
       </div>
-
       <main className="container-app">
-        <div className="mx-auto max-w-6xl px-4 pb-10">{children}</div>
+        <div className="w-full max-w-none px-6 pb-10">{children}</div>
       </main>
     </div>
   );
