@@ -1,6 +1,8 @@
+// app/api/cases/create/route.ts
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "../../../../lib/supabaseServer";
+import type { Database } from "../../../../types/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,6 +14,14 @@ const BodySchema = z.object({
   assignedTech: z.string().uuid().nullable().optional(),
   imagePaths: z.array(z.string().min(1)).max(50).optional(),
 });
+
+type CaseRow = Database["public"]["Tables"]["cases"]["Row"];
+
+type CaseImageInsertLoose = {
+  case_id: string;
+  storage_path: string;
+  is_original?: boolean | null;
+};
 
 export async function OPTIONS() {
   return NextResponse.json({}, { status: 204 });
@@ -31,49 +41,76 @@ export async function POST(req: Request) {
 
     const supabase = createClient();
 
-    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
     if (userErr || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const row: Record<string, any> = {
+    const row = {
       title: input.title ?? "New case",
       status: "DRAFT",
       created_by: user.id,
       notes: input.description ?? null,
+      patient_id: input.patientId ?? null,
+      assigned_tech: input.assignedTech ?? null,
     };
-    if (input.patientId) row.patient_id = input.patientId;
-    if (typeof input.assignedTech !== "undefined") row.assigned_tech = input.assignedTech;
 
-    const { data: created, error: insertErr } = await supabase
+    const { data: createdRaw, error: insertErr } = await (supabase as any)
       .from("cases")
-      .insert(row)
-      .select("id, title, status, created_at")
+      .insert(row as any)
+      .select()
       .single();
 
-    if (insertErr || !created) {
+    if (insertErr || !createdRaw) {
       return NextResponse.json(
         { error: "Failed to create case", detail: insertErr?.message ?? null },
         { status: 400 }
       );
     }
 
+    const created = createdRaw as CaseRow;
+
     if (input.imagePaths && input.imagePaths.length > 0) {
-      const imgRows = input.imagePaths.map((p) => ({
-        case_id: created.id,
+      const caseId = String((created as any).id);
+      const imgRows: CaseImageInsertLoose[] = input.imagePaths.map((p) => ({
+        case_id: caseId,
         storage_path: p,
         is_original: true,
       }));
-      const { error: imgErr } = await supabase.from("case_images").insert(imgRows);
+
+      const { error: imgErr } = await (supabase as any)
+        .from("case_images")
+        .insert(imgRows as any);
+
       if (imgErr) {
         return NextResponse.json(
-          { error: "Case created but failed to attach images", case: created, detail: imgErr.message },
+          {
+            error: "Case created but failed to attach images",
+            case: {
+              id: (created as any).id,
+              title: created.title,
+              status: created.status,
+              created_at: created.created_at,
+            },
+            detail: imgErr.message,
+          },
           { status: 207, headers: { "Cache-Control": "no-store" } }
         );
       }
     }
 
-    return NextResponse.json(created, { status: 201, headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(
+      {
+        id: (created as any).id,
+        title: created.title,
+        status: created.status,
+        created_at: created.created_at,
+      },
+      { status: 201, headers: { "Cache-Control": "no-store" } }
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 500 });
