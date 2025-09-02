@@ -9,13 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^138.0.2",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.56.0",
     "@tanstack/react-query": "^5.85.5",
     "lucide-react": "^0.542.0",
     "next": "15.5.0",
     "openai": "^5.16.0",
-    "puppeteer": "^24.17.1",
+    "puppeteer-core": "^24.18.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "zod": "3.25.76"

@@ -2,7 +2,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import puppeteer, { type Browser } from "puppeteer";
+import chromium from "@sparticuz/chromium";
+import type { Browser } from "puppeteer-core";
 import fs from "fs/promises";
 import path from "path";
 
@@ -246,7 +247,7 @@ async function loadCss() {
   const fallback = `
 :root { --text:#0b0c0e; --muted:#5a6472; --bg:#ffffff; --border:#e5e7eb; --accent:#2563eb; --danger:#dc2626; --ok:#16a34a; }
 *{box-sizing:border-box}
-body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif; color:var(--text); background:var(--bg); margin:0; padding:24px}
+body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif; color:var(--text); background:#fff; margin:0; padding:24px}
 h1{font-size:22px;margin:0 0 8px}
 h2{font-size:16px;margin:0 0 10px}
 h3{font-size:14px;margin:0 0 8px}
@@ -640,10 +641,25 @@ export async function POST(req: Request) {
       css
     );
 
-    browser = await puppeteer.launch({
+    const { launch } = await import("puppeteer-core");
+    let executablePath = await chromium.executablePath();
+
+    if (!executablePath) {
+      if (process.platform === "darwin") {
+        executablePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+      } else if (process.platform === "win32") {
+        executablePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+      } else {
+        executablePath = "/usr/bin/google-chrome";
+      }
+    }
+
+    browser = await launch({
+      args: chromium.args,
+      executablePath,
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
+
     const page = await browser.newPage();
     await page.setContent(doc, { waitUntil: "networkidle0" });
     await page.emulateMediaType("screen");
@@ -666,22 +682,18 @@ export async function POST(req: Request) {
         ? latestVersion
         : latestVersion;
 
-const copy = new Uint8Array(pdf.byteLength);
-copy.set(pdf); 
+    const copy = new Uint8Array(pdf.byteLength);
+    copy.set(pdf);
+    const blob = new Blob([copy.buffer], { type: "application/pdf" });
 
-const blob = new Blob([copy.buffer], { type: "application/pdf" });
-
-return new Response(blob, {
-  status: 200,
-  headers: {
-    "Content-Type": "application/pdf",
-    "Content-Disposition": `attachment; filename="case-${caseId}-packet-v${nameDraft}-v${nameReb}.pdf"`,
-    "Cache-Control": "no-store",
-  },
-});
-
-
-
+    return new Response(blob, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="case-${caseId}-packet-v${nameDraft}-v${nameReb}.pdf"`,
+        "Cache-Control": "no-store",
+      },
+    });
   } catch (e: any) {
     return NextResponse.json({ error: "pdf_failed", details: e?.message || "Unexpected error" }, { status: 500 });
   } finally {
