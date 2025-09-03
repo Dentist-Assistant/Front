@@ -2,13 +2,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import chromium from "@sparticuz/chromium";
 import type { Browser } from "puppeteer-core";
 import fs from "fs/promises";
 import path from "path";
+import chromium from "@sparticuz/chromium";
+
+(chromium as any).setBrotliPath?.(
+  path.join(process.cwd(), "node_modules", "@sparticuz", "chromium", "bin")
+);
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
 
 const IMAGE_BUCKET = process.env.IMAGE_BUCKET || "cases";
 const SIGNED_URL_TTL = Number(process.env.SIGNED_URL_TTL || "600");
@@ -642,7 +647,7 @@ export async function POST(req: Request) {
     );
 
     const { launch } = await import("puppeteer-core");
-    let executablePath = await chromium.executablePath();
+    let executablePath = await chromium.executablePath(process.env.LAMBDA_TASK_ROOT || "/var/task");
 
     if (!executablePath) {
       if (process.platform === "darwin") {
