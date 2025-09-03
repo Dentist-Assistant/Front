@@ -1,3 +1,4 @@
+// app/api/reports/pdf/route.ts
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
@@ -133,112 +134,6 @@ function coerceOverlays(raw: any): Overlay[] {
     else if (t === "polygon" && pts.length >= 3) out.push({ type: "polygon", points: pts, label: o?.label ?? null });
   }
   return out.slice(0, 24);
-}
-
-function anchorForOverlay(o: Overlay): [number, number] {
-  if (o.type === "circle") return o.center;
-  if (o.type === "bbox") return [o.bbox[0], o.bbox[1]];
-  const p = (o as any).points?.[0] ?? [0.5, 0.5];
-  return [p[0], p[1]];
-}
-
-function labelSVG(idx: number, x: number, y: number) {
-  const r = 10;
-  return `<g class="lbl" transform="translate(${x},${y})">
-        <circle r="${r}" class="lbl-bg"/>
-        <text dominant-baseline="middle" text-anchor="middle" class="lbl-t">${idx}</text>
-    </g>`;
-}
-
-function svgForImage(
-  url: string,
-  width: number,
-  findings: Array<{
-    index: number;
-    tooth_fdi: number;
-    text: string;
-    severity: string;
-    overlays: Overlay[];
-  }>
-) {
-  const W = 1000;
-  const H = 750;
-  const shapes: string[] = [];
-  const labels: string[] = [];
-  let n = 1;
-  for (const f of findings) {
-    for (const o of f.overlays) {
-      const idx = n++;
-      if (o.type === "circle") {
-        const cx = Math.round(o.center[0] * W);
-        const cy = Math.round(o.center[1] * H);
-        const r = Math.max(2, Math.round(o.radius * Math.min(W, H)));
-        shapes.push(`<circle cx="${cx}" cy="${cy}" r="${r}" class="ov stroke-${toSev(f.severity)} fill-none"/>`);
-        labels.push(labelSVG(idx, cx, cy));
-        continue;
-      }
-      if (o.type === "bbox") {
-        const x = Math.round(o.bbox[0] * W);
-        const y = Math.round(o.bbox[1] * H);
-        const w = Math.max(2, Math.round(o.bbox[2] * W));
-        const h = Math.max(2, Math.round(o.bbox[3] * H));
-        shapes.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" class="ov stroke-${toSev(f.severity)} fill-none"/>`);
-        labels.push(labelSVG(idx, x, y));
-        continue;
-      }
-      if (o.type === "line") {
-        const [p1, p2] = o.points;
-        const x1 = Math.round(p1[0] * W);
-        const y1 = Math.round(p1[1] * H);
-        const x2 = Math.round(p2[0] * W);
-        const y2 = Math.round(p2[1] * H);
-        shapes.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="ov stroke-${toSev(f.severity)}"/>`);
-        labels.push(labelSVG(idx, x1, y1));
-        continue;
-      }
-      if (o.type === "polyline" || o.type === "polygon") {
-        const pts = o.points.map(([x, y]) => `${Math.round(x * W)},${Math.round(y * H)}`).join(" ");
-        if (o.type === "polyline") {
-          shapes.push(`<polyline points="${pts}" class="ov stroke-${toSev(f.severity)} fill-none"/>`);
-        } else {
-          shapes.push(`<polygon points="${pts}" class="ov stroke-${toSev(f.severity)} fill-translucent"/>`);
-        }
-        const [ax, ay] = anchorForOverlay(o);
-        labels.push(labelSVG(idx, Math.round(ax * W), Math.round(ay * H)));
-        continue;
-      }
-    }
-  }
-  const svg = `
-        <div class="img-wrap" style="max-width:${width}px">
-        <img src="${url}" alt="Image" class="img"/>
-        <svg class="ov-wrap" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-            ${shapes.join("\n")}
-            ${labels.join("\n")}
-        </svg>
-        </div>
-    `;
-  const legendItems: string[] = [];
-  n = 1;
-  for (const f of findings) {
-    for (const _ of f.overlays) {
-      legendItems.push(
-        `<li><span class="marker">${n}</span><span class="legend-text"><b>FDI ${f.tooth_fdi}</b> — ${esc(
-          f.text
-        )} ${sevBadge(f.severity)}</span></li>`
-      );
-      n++;
-    }
-    if (!f.overlays || f.overlays.length === 0) {
-      legendItems.push(
-        `<li><span class="marker">•</span><span class="legend-text"><b>FDI ${f.tooth_fdi}</b> — ${esc(
-          f.text
-        )} ${sevBadge(f.severity)}</span></li>`
-      );
-    }
-  }
-  const legend = `<ol class="legend">${legendItems.join("")}</ol>`;
-  return `<div class="page image-page">${svg}${legend}</div>`;
 }
 
 function sectionTemplate(title: string, content: string) {
@@ -550,7 +445,7 @@ export async function POST(req: Request) {
 
     const css = await loadCss();
 
-    const sum = `<section class="card"><h2>Summary</h2><p>${esc(latestSummary || draftSummary || "No summary")}</p></section>`;
+    const sum = sectionTemplate("Summary", `<p>${esc(latestSummary || draftSummary || "No summary")}</p>`);
 
     const tmplMeasurements = (function () {
       const rows = [
@@ -560,9 +455,7 @@ export async function POST(req: Request) {
         ["Crowding upper (mm)", esc(latestMeasurements?.crowding_upper_mm ?? "—")],
         ["Crowding lower (mm)", esc(latestMeasurements?.crowding_lower_mm ?? "—")],
       ];
-      const th = ["Metric", "Value"].map((h) => `<th>${esc(h)}</th>`).join("");
-      const tr = rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
-      return `<section class="card"><h2>Measurements</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+      return sectionTemplate("Measurements", tableTemplate(["Metric", "Value"], rows));
     })();
 
     const tmplOcclusion = (function () {
@@ -572,9 +465,7 @@ export async function POST(req: Request) {
         ["Open bite", esc(String(latestOcclusion?.open_bite ?? "—"))],
         ["Crossbite", esc(String(latestOcclusion?.crossbite ?? "—"))],
       ];
-      const th = ["Aspect", "Value"].map((h) => `<th>${esc(h)}</th>`).join("");
-      const tr = rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
-      return `<section class="card"><h2>Occlusion</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+      return sectionTemplate("Occlusion", tableTemplate(["Aspect", "Value"], rows));
     })();
 
     const tmplHygiene = (function () {
@@ -583,33 +474,37 @@ export async function POST(req: Request) {
         ["Calculus", esc(latestHygiene?.calculus ?? "—")],
         ["Gingival inflammation", esc(latestHygiene?.gingival_inflammation ?? "—")],
       ];
-      const th = ["Aspect", "Value"].map((h) => `<th>${esc(h)}</th>`).join("");
-      const tr = rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
-      return `<section class="card"><h2>Hygiene</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+      return sectionTemplate("Hygiene", tableTemplate(["Aspect", "Value"], rows));
     })();
 
     const tmplRecs = (function () {
       const content = Array.isArray(latestRecs) && latestRecs.length > 0 ? `<ul>${latestRecs.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : `<p>—</p>`;
-      return `<section class="card"><h2>Recommendations</h2>${content}</section>`;
+      return sectionTemplate("Recommendations", content);
     })();
 
     const latestTable = (function () {
-      const th = ["FDI", "Finding", "Severity", "Confidence", "Image"].map((h) => `<th>${esc(h)}</th>`).join("");
-      const tr = latestFindings
-        .map((f) => [esc(f.tooth_fdi), esc(f.text || "—"), sevBadge(f.severity), pct(f.confidence), esc(paths[f.image_index] || f.image_id || "—")])
-        .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
-        .join("");
-      return `<section class="card"><h2>Findings (Latest)</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+      const headers = ["FDI", "Finding", "Severity", "Confidence", "Image"];
+      const rows = latestFindings.map((f) => [
+        esc(f.tooth_fdi),
+        esc(f.text || "—"),
+        sevBadge(f.severity),
+        pct(f.confidence),
+        esc(paths[f.image_index] || f.image_id || "—"),
+      ]);
+      return sectionTemplate("Findings (Latest)", tableTemplate(headers, rows));
     })();
 
     const draftTable = (function () {
       if (!(draft?.version !== latest?.version || draftFindings.length !== latestFindings.length)) return "";
-      const th = ["FDI", "Finding", "Severity", "Confidence", "Image"].map((h) => `<th>${esc(h)}</th>`).join("");
-      const tr = draftFindings
-        .map((f) => [esc(f.tooth_fdi), esc(f.text || "—"), sevBadge(f.severity), pct(f.confidence), esc(paths[f.image_index] || f.image_id || "—")])
-        .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
-        .join("");
-      return `<section class="card"><h2>Findings (Draft)</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+      const headers = ["FDI", "Finding", "Severity", "Confidence", "Image"];
+      const rows = draftFindings.map((f) => [
+        esc(f.tooth_fdi),
+        esc(f.text || "—"),
+        sevBadge(f.severity),
+        pct(f.confidence),
+        esc(paths[f.image_index] || f.image_id || "—"),
+      ]);
+      return sectionTemplate("Findings (Draft)", tableTemplate(headers, rows));
     })();
 
     const rebuttalSection =
@@ -618,23 +513,17 @@ export async function POST(req: Request) {
             const u = latest.payload.rebuttal.updates || [];
             const table =
               Array.isArray(u) && u.length
-                ? (function () {
-                    const th = ["Topic", "Action", "Text", "Rationale"].map((h) => `<th>${esc(h)}</th>`).join("");
-                    const tr = u
-                      .map((x: any) => [esc(x.topic || ""), esc(x.action || ""), esc(x.text || ""), esc(x.rationale || "")])
-                      .map((r: string[]) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
-                      .join("");
-                    return `<table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
-                  })()
+                ? tableTemplate(
+                    ["Topic", "Action", "Text", "Rationale"],
+                    u.map((x: any) => [esc(x.topic || ""), esc(x.action || ""), esc(x.text || ""), esc(x.rationale || "")])
+                  )
                 : "";
-            return `<section class="card"><h2>Rebuttal</h2><p>${esc(latest.payload.rebuttal.narrative || "")}</p>${table}</section>`;
+            return sectionTemplate("Rebuttal", `<p>${esc(latest.payload.rebuttal.narrative || "")}</p>${table}`);
           })()
         : "";
 
     const finalGoalBox = (function () {
-      const tgfRaw = latestPayload?.treatment_goal_final ?? latestPayload?.final_treatment_goal ?? latestPayload?.treatment_goal;
-      const finalGoal = coerceFinalGoal(tgfRaw);
-      return finalGoal ? `<section class="card"><h2>Final treatment goal</h2><div class="final-goal">${esc(finalGoal)}</div></section>` : "";
+      return finalGoal ? sectionTemplate("Final treatment goal", `<div class="final-goal">${esc(finalGoal)}</div>`) : "";
     })();
 
     const imagePages: string[] = [];
@@ -642,7 +531,8 @@ export async function POST(req: Request) {
       const shapes: string[] = [];
       const labels: string[] = [];
       let n = 1;
-      const label = (idx: number, x: number, y: number) => `<g class="lbl" transform="translate(${x},${y})"><circle r="10" class="lbl-bg"/><text dominant-baseline="middle" text-anchor="middle" class="lbl-t">${idx}</text></g>`;
+      const label = (idx: number, x: number, y: number) =>
+        `<g class="lbl" transform="translate(${x},${y})"><circle r="10" class="lbl-bg"/><text dominant-baseline="middle" text-anchor="middle" class="lbl-t">${idx}</text></g>`;
       for (const f of findings) {
         for (const o of f.overlays) {
           const idx = n++;
@@ -687,14 +577,14 @@ export async function POST(req: Request) {
         }
       }
       const svg = `
-            <div class="img-wrap" style="max-width:${W}px">
-            <img src="${url}" alt="Image" class="img" width="${W}" height="${H}"/>
-            <svg class="ov-wrap" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-                ${shapes.join("\n")}
-                ${labels.join("\n")}
-            </svg>
-            </div>
-        `;
+        <div class="img-wrap" style="max-width:${W}px">
+          <img src="${url}" alt="Image" class="img" width="${W}" height="${H}"/>
+          <svg class="ov-wrap" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+            ${shapes.join("\n")}
+            ${labels.join("\n")}
+          </svg>
+        </div>
+      `;
       return `<div class="page image-page">${svg}</div>`;
     };
 
@@ -708,30 +598,30 @@ export async function POST(req: Request) {
         overlays: (f as any).overlays || [],
       }));
       const headerPage = `<div class="page card"><h2>Image ${i + 1} / ${signed.length}</h2><small>${esc(paths[i])}</small></div>`;
-      const page = makeImgPage(signed[i], Math.max(10, Number(dims.width) || 1000), Math.max(10, Number(dims.height) || 750), list);
-      imagePages.push(headerPage + page);
+      const pageBlock = makeImgPage(signed[i], Math.max(10, Number(dims.width) || 1000), Math.max(10, Number(dims.height) || 750), list);
+      imagePages.push(headerPage + pageBlock);
     }
 
     const doc = htmlDocument(
       [
         `
         <div class="header">
-            <div>
+          <div>
             <h1>Review Packet</h1>
             <small>Case ${esc(caseId)}</small>
-            </div>
-            <div class="badges">
+          </div>
+          <div class="badges">
             <span class="badge">v${draft?.version ?? latestVersion} draft</span>
             <span class="badge">${latest?.payload?.rebuttal ? "rebuttal" : "latest"} v${latestVersion}</span>
             <span class="badge">${new Date().toLocaleString()}</span>
-            </div>
+          </div>
         </div>
         <div class="card">
-            <div class="kv">
+          <div class="kv">
             <div>Patient</div><div>${esc(caseRow?.title || "Patient")}</div>
             <div>Overlay coordinates</div><div>${esc(overlayCoords || "normalized_0_1")}</div>
             <div>Images used</div><div>${paths.length}</div>
-            </div>
+          </div>
         </div>
         `,
         sum,

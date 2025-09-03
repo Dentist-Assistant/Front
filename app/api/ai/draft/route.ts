@@ -143,7 +143,6 @@ function coerceOverlay(o: any): Overlay | null {
   const t = normOverlayType(o?.type);
   if (!t) return null;
   const label = firstStr(o?.label) ?? null;
-
   if (t === "circle") {
     const c = clampPair(o?.center);
     const r = clamp01(firstNum(o?.radius));
@@ -186,7 +185,10 @@ function coerceOverlays(raw: any): Overlay[] {
 }
 
 type RawFinding = Record<string, any>;
-function coerceFindings(raw: any, images: { index: number; id: string; url: string }[]) {
+function coerceFindings(
+  raw: any,
+  images: { index: number; id: string; url: string; width?: number; height?: number }[]
+) {
   const src: RawFinding[] =
     Array.isArray(raw?.findings) ? raw.findings :
     Array.isArray(raw?.teeth) ? raw.teeth : [];
@@ -354,7 +356,7 @@ export async function POST(req: Request) {
     } else {
       const { data: imgs, error } = await sb
         .from("case_images")
-        .select("storage_path, is_original, created_at")
+        .select("storage_path, width, height, is_original, created_at")
         .eq("case_id", caseId)
         .order("is_original", { ascending: false })
         .order("created_at", { ascending: true })
@@ -363,6 +365,15 @@ export async function POST(req: Request) {
       paths = (imgs ?? []).map((r) => r.storage_path as string);
     }
     if (!paths.length) return NextResponse.json({ error: "no_images" }, { status: 400 });
+
+    const dimsByPath = new Map<string, { width?: number | null; height?: number | null }>();
+    const { data: meta } = await sb
+      .from("case_images")
+      .select("storage_path, width, height")
+      .in("storage_path", paths);
+    (meta ?? []).forEach((r: any) => {
+      dimsByPath.set(r.storage_path, { width: r.width ?? null, height: r.height ?? null });
+    });
 
     const signedUrls: string[] = [];
     for (const p of paths) {
@@ -468,7 +479,14 @@ Return JSON only. Do not include prose outside the JSON.
     let raw: any = {};
     try { raw = JSON.parse(jsonText); } catch {}
 
-    const images = signedUrls.map((url, index) => ({ index, id: paths[index], url }));
+    const images = signedUrls.map((url, index) => {
+      const p = paths[index];
+      const dims = dimsByPath.get(p) || {};
+      const w = typeof dims.width === "number" && dims.width > 0 ? Number(dims.width) : undefined;
+      const h = typeof dims.height === "number" && dims.height > 0 ? Number(dims.height) : undefined;
+      return { index, id: p, url, width: w, height: h };
+    });
+
     const cleanedFindings = coerceFindings(raw, images);
 
     let overall = clamp01(raw?.confidence_overall ?? undefined);
