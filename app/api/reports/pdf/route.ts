@@ -1,4 +1,3 @@
-// app/api/reports/pdf/route.ts
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
@@ -7,9 +6,7 @@ import fs from "fs/promises";
 import path from "path";
 import chromium from "@sparticuz/chromium";
 
-(chromium as any).setBrotliPath?.(
-  path.join(process.cwd(), "node_modules", "@sparticuz", "chromium", "bin")
-);
+(chromium as any).setBrotliPath?.(path.join(process.cwd(), "node_modules", "@sparticuz", "chromium", "bin"));
 
 process.env.HOME = process.env.HOME || "/tmp";
 process.env.TMPDIR = process.env.TMPDIR || "/tmp";
@@ -148,9 +145,9 @@ function anchorForOverlay(o: Overlay): [number, number] {
 function labelSVG(idx: number, x: number, y: number) {
   const r = 10;
   return `<g class="lbl" transform="translate(${x},${y})">
-    <circle r="${r}" class="lbl-bg"/>
-    <text dominant-baseline="middle" text-anchor="middle" class="lbl-t">${idx}</text>
-  </g>`;
+        <circle r="${r}" class="lbl-bg"/>
+        <text dominant-baseline="middle" text-anchor="middle" class="lbl-t">${idx}</text>
+    </g>`;
 }
 
 function svgForImage(
@@ -213,14 +210,14 @@ function svgForImage(
     }
   }
   const svg = `
-    <div class="img-wrap" style="max-width:${width}px">
-      <img src="${url}" alt="Image" class="img"/>
-      <svg class="ov-wrap" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-        ${shapes.join("\n")}
-        ${labels.join("\n")}
-      </svg>
-    </div>
-  `;
+        <div class="img-wrap" style="max-width:${width}px">
+        <img src="${url}" alt="Image" class="img"/>
+        <svg class="ov-wrap" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+            ${shapes.join("\n")}
+            ${labels.join("\n")}
+        </svg>
+        </div>
+    `;
   const legendItems: string[] = [];
   n = 1;
   for (const f of findings) {
@@ -256,47 +253,47 @@ function tableTemplate(headers: string[], rows: string[][]) {
 
 async function loadCss() {
   const fallback = `
-:root { --text:#0b0c0e; --muted:#5a6472; --bg:#ffffff; --border:#e5e7eb; --accent:#2563eb; --danger:#dc2626; --ok:#16a34a; }
-*{box-sizing:border-box}
-body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif; color:var(--text); background:#fff; margin:0; padding:24px}
-h1{font-size:22px;margin:0 0 8px}
-h2{font-size:16px;margin:0 0 10px}
-h3{font-size:14px;margin:0 0 8px}
-p{margin:6px 0}
-small{color:var(--muted)}
-.card{border:1px solid var(--border); border-radius:12px; padding:14px; margin:10px 0; background:#fff}
-.grid{display:grid; gap:10px}
-.grid-2{grid-template-columns:1fr 1fr}
-.grid-3{grid-template-columns:1fr 1fr 1fr}
-.table{width:100%; border-collapse:collapse; font-size:12px}
-.table th,.table td{border-top:1px solid var(--border); padding:8px; text-align:left; vertical-align:top}
-.badges{display:flex; gap:6px; flex-wrap:wrap}
-.badge{display:inline-block; border:1px solid var(--border); border-radius:999px; padding:2px 8px; font-size:11px; color:var(--muted)}
-.sev{display:inline-block; border-radius:8px; padding:1px 6px; font-size:11px; margin-left:6px; border:1px solid}
-.sev-low{color:#066e2e; border-color:#a7f3d0; background:#ecfdf5}
-.sev-med{color:#8a4b00; border-color:#fde68a; background:#fffbeb}
-.sev-high{color:#991b1b; border-color:#fecaca; background:#fef2f2}
-.header{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:12px}
-.kv{display:grid; grid-template-columns:180px 1fr; gap:6px; font-size:12px}
-.img-wrap{position:relative; width:100%; background:#000; border-radius:12px; overflow:hidden; border:1px solid var(--border)}
-.img{display:block; width:100%; height:auto; object-fit:contain; background:#000}
-.ov-wrap{position:absolute; inset:0; width:100%; height:100%}
-.ov{stroke-width:3; vector-effect:non-scaling-stroke}
-.stroke-low{stroke:#10b981}
-.stroke-moderate{stroke:#f59e0b}
-.stroke-high{stroke:#ef4444}
-.fill-none{fill:transparent}
-.fill-translucent{fill:rgba(239,68,68,.18)}
-.lbl-bg{fill:#111827; stroke:#fff; stroke-width:2}
-.lbl-t{fill:#fff; font-size:12px; font-weight:700}
-.legend{margin:10px 0 0 0; padding-left:16px; font-size:12px}
-.legend li{margin:3px 0; display:flex; align-items:center; gap:8px}
-.marker{display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; border-radius:50%; background:#111827; color:#fff; font-size:11px; font-weight:700}
-.page{page-break-after:always; padding:8px 0}
-.image-page .legend{break-inside:avoid}
-.hr{height:1px; background:var(--border); margin:10px 0}
-.final-goal{border:2px solid #111827; border-radius:12px; padding:12px; margin-top:8px; background:#f9fafb}
-`;
+    :root { --text:#0b0c0e; --muted:#5a6472; --bg:#ffffff; --border:#e5e7eb; --accent:#2563eb; --danger:#dc2626; --ok:#16a34a; }
+    *{box-sizing:border-box}
+    body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif; color:var(--text); background:#fff; margin:0; padding:24px}
+    h1{font-size:22px;margin:0 0 8px}
+    h2{font-size:16px;margin:0 0 10px}
+    h3{font-size:14px;margin:0 0 8px}
+    p{margin:6px 0}
+    small{color:var(--muted)}
+    .card{border:1px solid var(--border); border-radius:12px; padding:14px; margin:10px 0; background:#fff}
+    .grid{display:grid; gap:10px}
+    .grid-2{grid-template-columns:1fr 1fr}
+    .grid-3{grid-template-columns:1fr 1fr 1fr}
+    .table{width:100%; border-collapse:collapse; font-size:12px}
+    .table th,.table td{border-top:1px solid var(--border); padding:8px; text-align:left; vertical-align:top}
+    .badges{display:flex; gap:6px; flex-wrap:wrap}
+    .badge{display:inline-block; border:1px solid var(--border); border-radius:999px; padding:2px 8px; font-size:11px; color:var(--muted)}
+    .sev{display:inline-block; border-radius:8px; padding:1px 6px; font-size:11px; margin-left:6px; border:1px solid}
+    .sev-low{color:#066e2e; border-color:#a7f3d0; background:#ecfdf5}
+    .sev-med{color:#8a4b00; border-color:#fde68a; background:#fffbeb}
+    .sev-high{color:#991b1b; border-color:#fecaca; background:#fef2f2}
+    .header{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:12px}
+    .kv{display:grid; grid-template-columns:180px 1fr; gap:6px; font-size:12px}
+    .img-wrap{position:relative; width:100%; background:transparent; border-radius:12px; overflow:hidden; border:1px solid var(--border)}
+    .img{display:block; width:100%; height:auto; object-fit:contain; background:transparent}
+    .ov-wrap{position:absolute; inset:0; width:100%; height:100%}
+    .ov{stroke-width:3; vector-effect:non-scaling-stroke}
+    .stroke-low{stroke:#10b981}
+    .stroke-moderate{stroke:#f59e0b}
+    .stroke-high{stroke:#ef4444}
+    .fill-none{fill:transparent}
+    .fill-translucent{fill:rgba(239,68,68,.18)}
+    .lbl-bg{fill:#111827; stroke:#fff; stroke-width:2}
+    .lbl-t{fill:#fff; font-size:12px; font-weight:700}
+    .legend{margin:10px 0 0 0; padding-left:16px; font-size:12px}
+    .legend li{margin:3px 0; display:flex; align-items:center; gap:8px}
+    .marker{display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; border-radius:50%; background:#111827; color:#fff; font-size:11px; font-weight:700}
+    .page{page-break-after:always; padding:8px 0}
+    .image-page .legend{break-inside:avoid}
+    .hr{height:1px; background:var(--border); margin:10px 0}
+    .final-goal{border:2px solid #111827; border-radius:12px; padding:12px; margin-top:8px; background:#f9fafb}
+    `;
   try {
     const p = path.join(process.cwd(), "styles", "pdf.css");
     const css = await fs.readFile(p, "utf8");
@@ -308,16 +305,16 @@ small{color:var(--muted)}
 
 function htmlDocument(body: string, title: string, css: string) {
   return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<title>${esc(title)}</title>
-<style>${css}</style>
-</head>
-<body>
-${body}
-</body>
-</html>`;
+    <html>
+    <head>
+    <meta charset="utf-8"/>
+    <title>${esc(title)}</title>
+    <style>${css}</style>
+    </head>
+    <body>
+    ${body}
+    </body>
+    </html>`;
 }
 
 function coerceFinalGoal(val: any): string {
@@ -331,6 +328,46 @@ function coerceFinalGoal(val: any): string {
     return parts.join(" ").trim();
   }
   return "";
+}
+
+function applyFindingChanges(src: any[], changes: any[]): any[] {
+  if (!Array.isArray(changes) || changes.length === 0) return src;
+  const out = [...src];
+  for (const ch of changes) {
+    const tfd = Number.isFinite(Number(ch?.tooth_fdi)) ? Number(ch.tooth_fdi) : null;
+    const imgIdx = Number.isFinite(Number(ch?.image_index)) ? Number(ch.image_index) : null;
+    const findIndex = out.findIndex((f) => (tfd == null || f.tooth_fdi === tfd) && (imgIdx == null || f.image_index === imgIdx));
+    const act = String(ch?.action || ch?.op || "update").toLowerCase();
+    if (act === "remove" || act === "delete") {
+      if (findIndex >= 0) out.splice(findIndex, 1);
+      continue;
+    }
+    if (act === "add" || act === "create" || (findIndex < 0 && (ch?.text || ch?.note || ch?.severity || ch?.overlays))) {
+      out.push({
+        tooth_fdi: tfd ?? Number(ch?.tooth ?? 0),
+        text: ch?.text ?? ch?.note ?? "",
+        severity: toSev(ch?.severity),
+        confidence: Number.isFinite(Number(ch?.confidence)) ? Number(ch.confidence) : null,
+        image_index: imgIdx ?? Number.isFinite(Number(ch?.image)) ? Number(ch.image) : 0,
+        image_id: "",
+        overlays: coerceOverlays(ch?.overlays ?? ch?.geometry ?? []),
+      });
+      continue;
+    }
+    if (findIndex >= 0) {
+      const prev = out[findIndex];
+      out[findIndex] = {
+        ...prev,
+        text: ch?.text ?? ch?.note ?? prev.text,
+        severity: ch?.severity ? toSev(ch.severity) : prev.severity,
+        confidence: Number.isFinite(Number(ch?.confidence)) ? Number(ch.confidence) : prev.confidence ?? null,
+        overlays: Array.isArray(ch?.overlays) || Array.isArray(ch?.geometry) ? coerceOverlays(ch?.overlays ?? ch?.geometry ?? []) : prev.overlays,
+        tooth_fdi: tfd ?? prev.tooth_fdi,
+        image_index: imgIdx ?? prev.image_index,
+      };
+    }
+  }
+  return out;
 }
 
 const g: any = globalThis as any;
@@ -351,34 +388,19 @@ export async function POST(req: Request) {
     const { caseId, draftVersion, rebuttalVersion, images, dryRun } = parsed.data;
     const sb = admin();
 
-    const { data: caseRow, error: caseErr } = await sb
-      .from("cases")
-      .select("title")
-      .eq("id", caseId)
-      .maybeSingle();
+    const { data: caseRow, error: caseErr } = await sb.from("cases").select("title").eq("id", caseId).maybeSingle();
     if (caseErr) {
       return NextResponse.json({ error: "db_error", details: caseErr.message }, { status: 500 });
     }
 
     const fetchReportByVersion = async (v: number) => {
-      const { data, error } = await sb
-        .from("reports")
-        .select("version, narrative, payload")
-        .eq("case_id", caseId)
-        .eq("version", v)
-        .maybeSingle();
+      const { data, error } = await sb.from("reports").select("version, narrative, payload").eq("case_id", caseId).eq("version", v).maybeSingle();
       if (error) throw new Error(error.message);
       return (data as any) || null;
     };
 
     const fetchLatestReport = async () => {
-      const { data, error } = await sb
-        .from("reports")
-        .select("version, narrative, payload")
-        .eq("case_id", caseId)
-        .order("version", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await sb.from("reports").select("version, narrative, payload").eq("case_id", caseId).order("version", { ascending: false }).limit(1).maybeSingle();
       if (error) throw new Error(error.message);
       return (data as any) || null;
     };
@@ -413,10 +435,11 @@ export async function POST(req: Request) {
     }
 
     let paths: string[] = Array.isArray(images) && images.length > 0 ? images : [];
+    let meta: { path: string; width: number; height: number }[] = [];
     if (paths.length === 0) {
       const { data: imgs, error: imgsErr } = await sb
         .from("case_images")
-        .select("storage_path, is_original, created_at")
+        .select("storage_path, is_original, created_at, width, height")
         .eq("case_id", caseId)
         .order("is_original", { ascending: false })
         .order("created_at", { ascending: true })
@@ -425,6 +448,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "db_error", details: imgsErr.message }, { status: 500 });
       }
       paths = (imgs || []).map((r) => r.storage_path as string);
+      meta = (imgs || []).map((r) => ({
+        path: r.storage_path as string,
+        width: Number.isFinite(Number(r.width)) ? Number(r.width) : 1000,
+        height: Number.isFinite(Number(r.height)) ? Number(r.height) : 750,
+      }));
+    } else {
+      meta = paths.map((p) => ({ path: p, width: 1000, height: 750 }));
     }
 
     const signed: string[] = [];
@@ -440,8 +470,7 @@ export async function POST(req: Request) {
 
     const overlayCoords: string = String(latestPayload?.overlay_coords || "normalized_0_1");
 
-    const latestSummary: string =
-      latestPayload?.rebuttal?.narrative ?? latestPayload?.summary ?? latest?.narrative ?? "";
+    const latestSummary: string = latestPayload?.rebuttal?.narrative ?? latestPayload?.summary ?? latest?.narrative ?? "";
     const draftSummary: string = draftPayload?.summary ?? draft?.narrative ?? "";
 
     const latestMeasurements = latestPayload?.measurements || {};
@@ -449,16 +478,13 @@ export async function POST(req: Request) {
     const latestHygiene = latestPayload?.hygiene || {};
     const latestRecs: string[] = Array.isArray(latestPayload?.recommendations) ? latestPayload.recommendations : [];
 
-    const tgfRaw =
-      latestPayload?.treatment_goal_final ??
-      latestPayload?.final_treatment_goal ??
-      latestPayload?.treatment_goal;
+    const tgfRaw = latestPayload?.treatment_goal_final ?? latestPayload?.final_treatment_goal ?? latestPayload?.treatment_goal;
     const finalGoal = coerceFinalGoal(tgfRaw);
 
     const draftFindingsSrc: any[] = Array.isArray(draftPayload?.findings) ? draftPayload.findings : [];
     const latestFindingsSrc: any[] = Array.isArray(latestPayload?.findings) ? latestPayload.findings : draftFindingsSrc;
 
-    const latestFindings = latestFindingsSrc.map((r, idx) => {
+    const latestFindingsBase = latestFindingsSrc.map((r, idx) => {
       const overlays = coerceOverlays(r?.overlays ?? r?.geometry ?? []);
       const conf = r?.confidence;
       return {
@@ -480,6 +506,9 @@ export async function POST(req: Request) {
       image_index: Number.isInteger(r?.image_index) ? r.image_index : 0,
       image_id: String(r?.image_id || paths[Number.isInteger(r?.image_index) ? r.image_index : 0] || ""),
     }));
+
+    const findingChanges = Array.isArray(latestPayload?.rebuttal?.finding_changes) ? latestPayload.rebuttal.finding_changes : [];
+    const latestFindings = applyFindingChanges(latestFindingsBase, findingChanges);
 
     const byImageLatest = new Map<number, typeof latestFindings>();
     latestFindings.forEach((f) => {
@@ -521,27 +550,6 @@ export async function POST(req: Request) {
 
     const css = await loadCss();
 
-    const header = `
-      <div class="header">
-        <div>
-          <h1>Review Packet</h1>
-          <small>Case ${esc(caseId)}</small>
-        </div>
-        <div class="badges">
-          <span class="badge">v${draft?.version ?? latestVersion} draft</span>
-          <span class="badge">${latest?.payload?.rebuttal ? "rebuttal" : "latest"} v${latestVersion}</span>
-          <span class="badge">${new Date().toLocaleString()}</span>
-        </div>
-      </div>
-      <div class="card">
-        <div class="kv">
-          <div>Patient</div><div>${esc(caseRow?.title || "Patient")}</div>
-          <div>Overlay coordinates</div><div>${esc(overlayCoords || "normalized_0_1")}</div>
-          <div>Images used</div><div>${paths.length}</div>
-        </div>
-      </div>
-    `;
-
     const sum = `<section class="card"><h2>Summary</h2><p>${esc(latestSummary || draftSummary || "No summary")}</p></section>`;
 
     const tmplMeasurements = (function () {
@@ -581,23 +589,14 @@ export async function POST(req: Request) {
     })();
 
     const tmplRecs = (function () {
-      const content =
-        Array.isArray(latestRecs) && latestRecs.length > 0
-          ? `<ul>${latestRecs.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>`
-          : `<p>—</p>`;
+      const content = Array.isArray(latestRecs) && latestRecs.length > 0 ? `<ul>${latestRecs.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : `<p>—</p>`;
       return `<section class="card"><h2>Recommendations</h2>${content}</section>`;
     })();
 
     const latestTable = (function () {
       const th = ["FDI", "Finding", "Severity", "Confidence", "Image"].map((h) => `<th>${esc(h)}</th>`).join("");
       const tr = latestFindings
-        .map((f) => [
-          esc(f.tooth_fdi),
-          esc(f.text || "—"),
-          sevBadge(f.severity),
-          pct(f.confidence),
-          esc(paths[f.image_index] || f.image_id || "—"),
-        ])
+        .map((f) => [esc(f.tooth_fdi), esc(f.text || "—"), sevBadge(f.severity), pct(f.confidence), esc(paths[f.image_index] || f.image_id || "—")])
         .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
         .join("");
       return `<section class="card"><h2>Findings (Latest)</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
@@ -607,13 +606,7 @@ export async function POST(req: Request) {
       if (!(draft?.version !== latest?.version || draftFindings.length !== latestFindings.length)) return "";
       const th = ["FDI", "Finding", "Severity", "Confidence", "Image"].map((h) => `<th>${esc(h)}</th>`).join("");
       const tr = draftFindings
-        .map((f) => [
-          esc(f.tooth_fdi),
-          esc(f.text || "—"),
-          sevBadge(f.severity),
-          pct(f.confidence),
-          esc(paths[f.image_index] || f.image_id || "—"),
-        ])
+        .map((f) => [esc(f.tooth_fdi), esc(f.text || "—"), sevBadge(f.severity), pct(f.confidence), esc(paths[f.image_index] || f.image_id || "—")])
         .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
         .join("");
       return `<section class="card"><h2>Findings (Draft)</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
@@ -639,30 +632,17 @@ export async function POST(req: Request) {
         : "";
 
     const finalGoalBox = (function () {
-      const tgfRaw =
-        latestPayload?.treatment_goal_final ?? latestPayload?.final_treatment_goal ?? latestPayload?.treatment_goal;
+      const tgfRaw = latestPayload?.treatment_goal_final ?? latestPayload?.final_treatment_goal ?? latestPayload?.treatment_goal;
       const finalGoal = coerceFinalGoal(tgfRaw);
       return finalGoal ? `<section class="card"><h2>Final treatment goal</h2><div class="final-goal">${esc(finalGoal)}</div></section>` : "";
     })();
 
     const imagePages: string[] = [];
-    const makeImgPage = (url: string, width: number, findings: any[]) => {
-      const W = 1000;
-      const H = 750;
+    const makeImgPage = (url: string, W: number, H: number, findings: any[]) => {
       const shapes: string[] = [];
       const labels: string[] = [];
       let n = 1;
-      const labelSVG = (idx: number, x: number, y: number) => {
-        const r = 10;
-        return `<g class="lbl" transform="translate(${x},${y})"><circle r="${r}" class="lbl-bg"/><text dominant-baseline="middle" text-anchor="middle" class="lbl-t">${idx}</text></g>`;
-      };
-      const toSev = (s?: string) => {
-        const v = String(s || "").toLowerCase();
-        if (v.includes("high") || v.includes("severe")) return "high";
-        if (v.includes("moder")) return "moderate";
-        if (v.includes("med")) return "moderate";
-        return "low";
-      };
+      const label = (idx: number, x: number, y: number) => `<g class="lbl" transform="translate(${x},${y})"><circle r="10" class="lbl-bg"/><text dominant-baseline="middle" text-anchor="middle" class="lbl-t">${idx}</text></g>`;
       for (const f of findings) {
         for (const o of f.overlays) {
           const idx = n++;
@@ -671,7 +651,7 @@ export async function POST(req: Request) {
             const cy = Math.round(o.center[1] * H);
             const r = Math.max(2, Math.round(o.radius * Math.min(W, H)));
             shapes.push(`<circle cx="${cx}" cy="${cy}" r="${r}" class="ov stroke-${toSev(f.severity)} fill-none"/>`);
-            labels.push(labelSVG(idx, cx, cy));
+            labels.push(label(idx, cx, cy));
             continue;
           }
           if (o.type === "bbox") {
@@ -680,7 +660,7 @@ export async function POST(req: Request) {
             const w = Math.max(2, Math.round(o.bbox[2] * W));
             const h = Math.max(2, Math.round(o.bbox[3] * H));
             shapes.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" class="ov stroke-${toSev(f.severity)} fill-none"/>`);
-            labels.push(labelSVG(idx, x, y));
+            labels.push(label(idx, x, y));
             continue;
           }
           if (o.type === "line") {
@@ -690,7 +670,7 @@ export async function POST(req: Request) {
             const x2 = Math.round(p2[0] * W);
             const y2 = Math.round(p2[1] * H);
             shapes.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="ov stroke-${toSev(f.severity)}"/>`);
-            labels.push(labelSVG(idx, x1, y1));
+            labels.push(label(idx, x1, y1));
             continue;
           }
           if (o.type === "polyline" || o.type === "polygon") {
@@ -701,24 +681,25 @@ export async function POST(req: Request) {
               shapes.push(`<polygon points="${pts}" class="ov stroke-${toSev(f.severity)} fill-translucent"/>`);
             }
             const [ax, ay] = (o as any).points?.[0] ?? [0.5, 0.5];
-            labels.push(labelSVG(idx, Math.round(ax * W), Math.round(ay * H)));
+            labels.push(label(idx, Math.round(ax * W), Math.round(ay * H)));
             continue;
           }
         }
       }
       const svg = `
-        <div class="img-wrap" style="max-width:${width}px">
-          <img src="${url}" alt="Image" class="img"/>
-          <svg class="ov-wrap" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-            ${shapes.join("\n")}
-            ${labels.join("\n")}
-          </svg>
-        </div>
-      `;
+            <div class="img-wrap" style="max-width:${W}px">
+            <img src="${url}" alt="Image" class="img" width="${W}" height="${H}"/>
+            <svg class="ov-wrap" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+                ${shapes.join("\n")}
+                ${labels.join("\n")}
+            </svg>
+            </div>
+        `;
       return `<div class="page image-page">${svg}</div>`;
     };
 
     for (let i = 0; i < signed.length; i++) {
+      const dims = meta[i] || { path: paths[i], width: 1000, height: 750 };
       const list = (byImageLatest.get(i) || []).map((f, k) => ({
         index: k + 1,
         tooth_fdi: f.tooth_fdi,
@@ -726,33 +707,33 @@ export async function POST(req: Request) {
         severity: f.severity,
         overlays: (f as any).overlays || [],
       }));
-      const page = makeImgPage(signed[i], 980, list);
       const headerPage = `<div class="page card"><h2>Image ${i + 1} / ${signed.length}</h2><small>${esc(paths[i])}</small></div>`;
+      const page = makeImgPage(signed[i], Math.max(10, Number(dims.width) || 1000), Math.max(10, Number(dims.height) || 750), list);
       imagePages.push(headerPage + page);
     }
 
     const doc = htmlDocument(
       [
         `
-      <div class="header">
-        <div>
-          <h1>Review Packet</h1>
-          <small>Case ${esc(caseId)}</small>
+        <div class="header">
+            <div>
+            <h1>Review Packet</h1>
+            <small>Case ${esc(caseId)}</small>
+            </div>
+            <div class="badges">
+            <span class="badge">v${draft?.version ?? latestVersion} draft</span>
+            <span class="badge">${latest?.payload?.rebuttal ? "rebuttal" : "latest"} v${latestVersion}</span>
+            <span class="badge">${new Date().toLocaleString()}</span>
+            </div>
         </div>
-        <div class="badges">
-          <span class="badge">v${draft?.version ?? latestVersion} draft</span>
-          <span class="badge">${latest?.payload?.rebuttal ? "rebuttal" : "latest"} v${latestVersion}</span>
-          <span class="badge">${new Date().toLocaleString()}</span>
+        <div class="card">
+            <div class="kv">
+            <div>Patient</div><div>${esc(caseRow?.title || "Patient")}</div>
+            <div>Overlay coordinates</div><div>${esc(overlayCoords || "normalized_0_1")}</div>
+            <div>Images used</div><div>${paths.length}</div>
+            </div>
         </div>
-      </div>
-      <div class="card">
-        <div class="kv">
-          <div>Patient</div><div>${esc(caseRow?.title || "Patient")}</div>
-          <div>Overlay coordinates</div><div>${esc(overlayCoords || "normalized_0_1")}</div>
-          <div>Images used</div><div>${paths.length}</div>
-        </div>
-      </div>
-    `,
+        `,
         sum,
         tmplMeasurements,
         tmplOcclusion,
@@ -788,13 +769,7 @@ export async function POST(req: Request) {
       for (let i = 0; i <= retries; i++) {
         try {
           return await launch({
-            args: [
-              ...chromium.args,
-              "--no-sandbox",
-              "--disable-setuid-sandbox",
-              "--disable-dev-shm-usage",
-              "--disable-gpu",
-            ],
+            args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
             executablePath,
             headless: (chromium as any).headless ?? true,
             defaultViewport: (chromium as any).defaultViewport,
