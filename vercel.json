@@ -1,9 +1,9 @@
 {
     "functions": {
       "app/api/reports/pdf/route.ts": {
-        "includeFiles": "node_modules/@sparticuz/chromium/**"
+        "includeFiles": "node_modules/@sparticuz/chromium/**",
+        "maxDuration": 60,
+        "memory": 1024
       }
     }
-  }
-  
-  
+  } 

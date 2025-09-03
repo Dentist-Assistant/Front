@@ -11,6 +11,14 @@ import chromium from "@sparticuz/chromium";
   path.join(process.cwd(), "node_modules", "@sparticuz", "chromium", "bin")
 );
 
+// ensure tmp/cache dirs on Vercel/Lambda
+process.env.HOME = process.env.HOME || "/tmp";
+process.env.TMPDIR = process.env.TMPDIR || "/tmp";
+
+// harden sparticuz runtime
+(chromium as any).setHeadlessMode?.(true);
+(chromium as any).setGraphicsMode?.(false);
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -647,7 +655,33 @@ export async function POST(req: Request) {
     );
 
     const { launch } = await import("puppeteer-core");
+
+    async function launchWithRetry(executablePath: string, retries = 3): Promise<Browser> {
+      let lastErr: any;
+      for (let i = 0; i <= retries; i++) {
+        try {
+          return await launch({
+            args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+            executablePath,
+            headless: (chromium as any).headless ?? true,
+            defaultViewport: (chromium as any).defaultViewport,
+          });
+        } catch (e: any) {
+          lastErr = e;
+          const msg = String(e?.message || "");
+          const code = String((e as any)?.code || "");
+          if (msg.includes("ETXTBSY") || code === "ETXTBSY" || msg.toLowerCase().includes("text file busy")) {
+            await new Promise((r) => setTimeout(r, 200 + i * 200));
+            continue;
+          }
+          throw e;
+        }
+      }
+      throw lastErr;
+    }
+
     let executablePath = await chromium.executablePath(process.env.LAMBDA_TASK_ROOT || "/var/task");
+
     if (process.env.VERCEL) {
       try {
         const alt = await chromium.executablePath();
@@ -665,12 +699,7 @@ export async function POST(req: Request) {
       }
     }
 
-    browser = await launch({
-      args: chromium.args,
-      executablePath,
-      headless: (chromium as any).headless ?? true,
-      defaultViewport: (chromium as any).defaultViewport,
-    });
+    browser = await launchWithRetry(executablePath);
 
     const page = await browser.newPage();
     await page.setContent(doc, { waitUntil: "networkidle0" });
