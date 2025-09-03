@@ -145,7 +145,7 @@ function tableRows(rows: { tooth: string; note: string; severity: Severity }[]) 
   }
   return rows
     .map(
-      (f, i) => `
+      (f: { tooth: string; note: string; severity: Severity }, i: number) => `
         <tr>
             <td>${i + 1}</td>
             <td>${escapeHtml(f.tooth)}</td>
@@ -224,9 +224,9 @@ function baseStyles() {
   .sev-high{color:#991b1b; border-color:#fecaca; background:#fef2f2}
   .header{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:12px}
   .kv{display:grid; grid-template-columns:180px 1fr; gap:6px; font-size:12px}
-  .img-wrap{position:relative; width:100%; background:transparent; border-radius:12px; overflow:hidden; border:1px solid var(--border)}
-  .img-wrap img{display:block; width:100%; height:auto; object-fit:contain; background:transparent}
-  .img-wrap svg{position:absolute; inset:0; width:100%; height:100%}
+  .img-wrap{position:relative; width:100%; background:#fff; border-radius:12px; overflow:hidden; border:1px solid var(--border)}
+  .img-wrap img{display:block; width:100%; height:auto; object-fit:contain; background:#fff}
+  .img-wrap svg{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
   .legend{margin:10px 0 0 0; padding-left:16px; font-size:12px}
   .legend table{width:100%; border-collapse:collapse}
   .legend th,.legend td{border-top:1px solid var(--border); padding:8px; text-align:left; vertical-align:top; font-size:12px}
@@ -244,23 +244,31 @@ function denorm(n: number, dim: number, isNorm?: boolean) {
   return isNorm ? n * dim : n;
 }
 
+function in01(n: number) {
+  return Number.isFinite(n) && n >= 0 && n <= 1;
+}
+
+function all01(nums: number[]) {
+  return nums.every(in01);
+}
+
 function svgOverlay(width: number, height: number, overlays?: ImageOverlay[]) {
   if (!overlays?.length) return "";
   const parts: string[] = [];
-  parts.push(`<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">`);
-  overlays.forEach((o, idx) => {
+  parts.push(`<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">`);
+  overlays.forEach((o: ImageOverlay, idx: number) => {
     const color = hexOrDefault(o.color, "#EF4444");
     const g = o.geometry || {};
     const label = o.label || (o.findingIndex ? String(o.findingIndex) : String(idx + 1));
     const texts: Array<{ x: number; y: number }> = [];
-    (g.circles || []).forEach((c) => {
+    (g.circles || []).forEach((c: Circle) => {
       const cx = denorm(c.cx, width, c.norm);
       const cy = denorm(c.cy, height, c.norm);
       const r = denorm(c.r, Math.min(width, height), c.norm);
       parts.push(`<circle cx="${cx}" cy="${cy}" r="${r}" stroke="${color}" stroke-width="3" fill="none"/>`);
       texts.push({ x: cx, y: cy - r - 6 });
     });
-    (g.lines || []).forEach((l) => {
+    (g.lines || []).forEach((l: Line) => {
       const x1 = denorm(l.x1, width, l.norm);
       const y1 = denorm(l.y1, height, l.norm);
       const x2 = denorm(l.x2, width, l.norm);
@@ -268,7 +276,7 @@ function svgOverlay(width: number, height: number, overlays?: ImageOverlay[]) {
       parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="3" />`);
       texts.push({ x: (x1 + x2) / 2, y: (y1 + y2) / 2 - 6 });
     });
-    (g.boxes || []).forEach((b) => {
+    (g.boxes || []).forEach((b: Box) => {
       const x = denorm(b.x, width, b.norm);
       const y = denorm(b.y, height, b.norm);
       const w = denorm(b.w, width, b.norm);
@@ -276,9 +284,9 @@ function svgOverlay(width: number, height: number, overlays?: ImageOverlay[]) {
       parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" stroke="${color}" stroke-width="3" fill="${color}" fill-opacity="0.14"/>`);
       texts.push({ x: x + w / 2, y: y - 6 });
     });
-    (g.polygons || []).forEach((p) => {
-      const pts = p.points.map((pt) => `${denorm(pt.x, width, p.norm)},${denorm(pt.y, height, p.norm)}`).join(" ");
-      parts.push(`<polygon points="${pts}" stroke="${color}" stroke-width="3" fill="${color}" fill-opacity="0.14"/>`);
+    (g.polygons || []).forEach((p: Polygon) => {
+      const ptsAttr = p.points.map((pt: Point) => `${denorm(pt.x, width, p.norm)},${denorm(pt.y, height, p.norm)}`).join(" ");
+      parts.push(`<polygon points="${ptsAttr}" stroke="${color}" stroke-width="3" fill="${color}" fill-opacity="0.14"/>`);
       const f = p.points[0];
       texts.push({ x: denorm(f.x, width, p.norm), y: denorm(f.y, height, p.norm) - 6 });
     });
@@ -300,11 +308,10 @@ function svgOverlay(width: number, height: number, overlays?: ImageOverlay[]) {
 
 function imageFigure(img: ReviewPacketImage, idx: number, perImagePage = false) {
   const w = img.width && img.width > 0 ? img.width : 1000;
-  const h = img.height && img.height > 0 ? img.height : 750;
-  const ratio = `${w}/${h}`;
+  const h = img.height && img.height > 0 ? img.height : 1000;
   const overlaySvg = svgOverlay(w, h, img.overlays);
   const legendRows = (img.findings || [])
-    .map((f, i) => {
+    .map((f: ReviewPacketImageFinding, i: number) => {
       const num = typeof f.index === "number" ? f.index : i + 1;
       return `
         <tr>
@@ -318,7 +325,7 @@ function imageFigure(img: ReviewPacketImage, idx: number, perImagePage = false) 
     .join("");
   return `
         <figure class="${perImagePage ? "page" : ""}">
-        <div class="img-wrap" style="aspect-ratio:${ratio}">
+        <div class="img-wrap">
             <img src="${img.url}" alt="${escapeHtml(img.caption || `Image ${img.index ?? idx + 1}`)}"/>
             ${overlaySvg}
         </div>
@@ -377,33 +384,40 @@ function coerceGeometryFromOverlays(overlays: any): Geometry {
       const cy = Number(o?.center?.[1]);
       const r = Number(o?.radius);
       if (Number.isFinite(cx) && Number.isFinite(cy) && Number.isFinite(r)) {
+        const norm = all01([cx, cy, r]);
         g.circles = g.circles || [];
-        g.circles.push({ cx, cy, r, norm: true });
+        g.circles.push({ cx, cy, r, norm });
       }
       continue;
     }
     if (t === "bbox" || t === "rect" || t === "rectangle" || t === "box") {
       const b = Array.isArray(o?.bbox) ? o.bbox : Array.isArray(o?.box) ? o.box : Array.isArray(o?.rect) ? o.rect : null;
       if (b && b.length >= 4) {
+        const x = Number(b[0]), y = Number(b[1]), w = Number(b[2]), h = Number(b[3]);
+        const norm = all01([x, y, w, h]);
         g.boxes = g.boxes || [];
-        g.boxes.push({ x: Number(b[0]), y: Number(b[1]), w: Number(b[2]), h: Number(b[3]), norm: true });
+        g.boxes.push({ x, y, w, h, norm });
       }
       continue;
     }
     if (t === "line") {
-      const pts = Array.isArray(o?.points) ? o.points : [];
-      if (pts.length >= 2) {
-        const [p1, p2] = pts;
+      const ptsArr = Array.isArray(o?.points) ? o.points : [];
+      if (ptsArr.length >= 2) {
+        const [p1, p2] = ptsArr;
+        const x1 = Number(p1?.[0]), y1 = Number(p1?.[1]), x2 = Number(p2?.[0]), y2 = Number(p2?.[1]);
+        const norm = all01([x1, y1, x2, y2]);
         g.lines = g.lines || [];
-        g.lines.push({ x1: Number(p1[0]), y1: Number(p1[1]), x2: Number(p2[0]), y2: Number(p2[1]), norm: true });
+        g.lines.push({ x1, y1, x2, y2, norm });
       }
       continue;
     }
     if (t === "polyline" || t === "polygon") {
-      const pts = Array.isArray(o?.points) ? o.points : [];
+      const rawPts = Array.isArray(o?.points) ? o.points : [];
+      const pts: Point[] = rawPts.map((pp: any) => ({ x: Number(pp?.[0]), y: Number(pp?.[1]) }));
       if (pts.length >= 2) {
+        const norm = all01(pts.flatMap((pt: Point) => [pt.x, pt.y]));
         g.polygons = g.polygons || [];
-        g.polygons.push({ points: pts.map((p: any) => ({ x: Number(p[0]), y: Number(p[1]), norm: true })), norm: true });
+        g.polygons.push({ points: pts, norm });
       }
       continue;
     }
@@ -500,7 +514,7 @@ export function buildReviewPacketHTML(data: ReviewPacketData) {
   const rows = tableRows(withChanges.findings);
   const updatesList = (data.rebuttal?.updates || [])
     .map(
-      (u, idx) => `
+      (u: ReviewPacketUpdate, idx: number) => `
         <li>
             <div class="upd-head">
             <span class="badge">${u.action}</span>
@@ -515,7 +529,7 @@ export function buildReviewPacketHTML(data: ReviewPacketData) {
 
   const alignmentTable = (data.rebuttal?.feedbackAlignment || [])
     .map(
-      (a) => `
+      (a: { itemNumber: number; itemText: string; decision: string; reason: string; linkedUpdates: number[] }) => `
         <tr>
             <td>${a.itemNumber || ""}</td>
             <td>${nl2br(a.itemText || "")}</td>
@@ -526,7 +540,7 @@ export function buildReviewPacketHTML(data: ReviewPacketData) {
     )
     .join("");
 
-  const imagesGrid = (withChanges.images || []).map((img, i) => imageFigure(img, i, false)).join("");
+  const imagesGrid = (withChanges.images || []).map((im: ReviewPacketImage, i: number) => imageFigure(im, i, false)).join("");
 
   const toothMap = groupToothMap(withChanges.findings);
 
@@ -656,7 +670,7 @@ export function buildReviewPacketHTMLCompare(data: ReviewCompareData) {
 
   const updatesList = (data.rebuttal?.updates || [])
     .map(
-      (u, idx) => `
+      (u: ReviewPacketUpdate, idx: number) => `
         <li>
             <div class="upd-head">
             <span class="badge">${u.action}</span>
@@ -671,7 +685,7 @@ export function buildReviewPacketHTMLCompare(data: ReviewCompareData) {
 
   const alignmentTable = (data.rebuttal?.feedbackAlignment || [])
     .map(
-      (a) => `
+      (a: { itemNumber: number; itemText: string; decision: string; reason: string; linkedUpdates: number[] }) => `
         <tr>
             <td>${a.itemNumber || ""}</td>
             <td>${nl2br(a.itemText || "")}</td>
@@ -682,11 +696,11 @@ export function buildReviewPacketHTMLCompare(data: ReviewCompareData) {
     )
     .join("");
 
-  const imagesGrid = (data.images || []).map((img, i) => imageFigure(img, i, false)).join("");
+  const imagesGrid = (data.images || []).map((im: ReviewPacketImage, i: number) => imageFigure(im, i, false)).join("");
 
   const toothMapLatest = groupToothMap(data.findings.latest || []);
 
-  const perImagePages = (data.images || []).map((img, i) => imageFigure(img, i, true)).join("");
+  const perImagePages = (data.images || []).map((im: ReviewPacketImage, i: number) => imageFigure(im, i, true)).join("");
 
   return `
   <!DOCTYPE html>
