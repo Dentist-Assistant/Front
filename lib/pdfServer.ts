@@ -1,4 +1,3 @@
-// lib/pdfServer.ts
 export type Severity = "low" | "medium" | "high";
 
 export type ReviewPacketUpdate = {
@@ -464,16 +463,23 @@ function applyFindingChanges(findings: { tooth: string; note: string; severity: 
       const color = sev ? severityColor(sev) : "#EF4444";
       const targetIdx = typeof imgIndex === "number" && imgIndex >= 0 && imgIndex < outImages.length ? imgIndex : 0;
       if (outImages[targetIdx]) {
-        const nextIndex = (outImages[targetIdx].findings?.length || 0) + (outImages[targetIdx].overlays?.length || 0) + 1;
+        const nextIndex = (outImages[targetIdx].findings?.length || 0) + 1;
         outImages[targetIdx].overlays = outImages[targetIdx].overlays || [];
         outImages[targetIdx].overlays.push({
           findingIndex: nextIndex,
-          label: String(tooth ?? nextIndex),
+          label: String(nextIndex),
           color,
           geometry: g,
         });
-        if (tooth != null || note != null || sev) {
-          outImages[targetIdx].findings = outImages[targetIdx].findings || [];
+        outImages[targetIdx].findings = outImages[targetIdx].findings || [];
+        if (tooth == null && note == null && !sev) {
+          outImages[targetIdx].findings.push({
+            tooth: "",
+            note: "",
+            severity: "low",
+            index: nextIndex,
+          });
+        } else {
           outImages[targetIdx].findings.push({
             tooth: String(tooth ?? ""),
             note: String(note ?? ""),
