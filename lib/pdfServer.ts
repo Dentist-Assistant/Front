@@ -224,9 +224,9 @@ function baseStyles() {
   .sev-high{color:#991b1b; border-color:#fecaca; background:#fef2f2}
   .header{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:12px}
   .kv{display:grid; grid-template-columns:180px 1fr; gap:6px; font-size:12px}
-  .img-wrap{position:relative; width:100%; background:#fff; border-radius:12px; overflow:hidden; border:1px solid var(--border)}
-  .img-wrap img{display:block; width:100%; height:auto; object-fit:contain; background:#fff}
-  .img-wrap svg{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
+  .img-wrap{position:relative; width:100%; background:#fff; border-radius:12px; overflow:hidden; border:1px solid var(--border); line-height:0}
+  .img-wrap img{display:block; width:100%; height:auto; object-fit:contain; background:#fff; vertical-align:top}
+  .img-wrap svg{position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none}
   .legend{margin:10px 0 0 0; padding-left:16px; font-size:12px}
   .legend table{width:100%; border-collapse:collapse}
   .legend th,.legend td{border-top:1px solid var(--border); padding:8px; text-align:left; vertical-align:top; font-size:12px}
@@ -255,7 +255,9 @@ function all01(nums: number[]) {
 function svgOverlay(width: number, height: number, overlays?: ImageOverlay[]) {
   if (!overlays?.length) return "";
   const parts: string[] = [];
-  parts.push(`<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">`);
+  parts.push(
+    `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">`
+  );
   overlays.forEach((o: ImageOverlay, idx: number) => {
     const color = hexOrDefault(o.color, "#EF4444");
     const g = o.geometry || {};
