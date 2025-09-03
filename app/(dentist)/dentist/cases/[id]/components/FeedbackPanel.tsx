@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "../../../../../../lib/supabaseBrowser";
 
 type LatestReport = { version?: number | null; narrative?: string | null; payload?: any } | null;
@@ -93,8 +93,9 @@ export default function FeedbackPanel({ caseId, latestReportVersion, initialFeed
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const [text, setText] = useState(initialFeedback);
   const [busy, setBusy] = useState<BusyState>("idle");
-  const [status, setStatus] = useState<{ kind: "ok" | "error"; msg: string } | null>(null);
+  const [status, setStatus] = useState<{ kind: "ok" | "error"; msg: string; version?: number | null } | null>(null);
   const [diff, setDiff] = useState<DiffResult | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const MAX = 1000;
   const used = text.length;
@@ -110,6 +111,43 @@ export default function FeedbackPanel({ caseId, latestReportVersion, initialFeed
     if (error) return [null, null];
     const rows = Array.isArray(data) ? data : [];
     return [rows[0] ?? null, rows[1] ?? null];
+  };
+
+  const notifyReloadOverlays = () => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("ai:reloadAnnotatedImages", { detail: { caseId, at: Date.now() } }));
+    }
+  };
+
+  useEffect(() => {
+    const onSaved = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      setStatus({ kind: "ok", msg: `Rebuttal saved as v${detail?.version ?? ""}`, version: detail?.version ?? null });
+      notifyReloadOverlays();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("ai:rebuttalSaved", onSaved as EventListener);
+      return () => window.removeEventListener("ai:rebuttalSaved", onSaved as EventListener);
+    }
+  }, [caseId]);
+
+  const openUpdatedPdf = async () => {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const res = await fetch("/api/reports/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId, rebuttalVersion: "latest" }),
+      });
+      if (!res.ok) throw new Error("Failed to generate PDF");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    } catch (e) {
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   const runRebuttal = async () => {
@@ -161,7 +199,11 @@ export default function FeedbackPanel({ caseId, latestReportVersion, initialFeed
         modified: d.modified,
       });
 
-      setStatus({ kind: "ok", msg: `Rebuttal saved as v${next?.version ?? ""}` });
+      setStatus({ kind: "ok", msg: `Rebuttal saved as v${next?.version ?? ""}`, version: Number(next?.version ?? null) });
+      notifyReloadOverlays();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("ai:rebuttalSaved", { detail: { caseId, version: Number(next?.version ?? null) } }));
+      }
       onAfterRebuttal?.();
     } catch (e: any) {
       setStatus({ kind: "error", msg: e?.message || "Unexpected error" });
@@ -185,6 +227,14 @@ export default function FeedbackPanel({ caseId, latestReportVersion, initialFeed
           >
             {busy === "running" ? "Rebutting…" : "Run Rebuttal"}
           </button>
+          <button
+            onClick={openUpdatedPdf}
+            disabled={pdfBusy}
+            className="btn"
+            title="Open a freshly generated PDF with the latest rebuttal"
+          >
+            {pdfBusy ? "Opening…" : "View updated PDF"}
+          </button>
         </div>
       </div>
 
@@ -194,8 +244,9 @@ export default function FeedbackPanel({ caseId, latestReportVersion, initialFeed
         maxLength={MAX}
         onChange={(e) => setText(e.target.value)}
         className="textarea min-h-[110px]"
-        placeholder='Example: "Verify FDI: finding on 21 may be 12. Quantify overjet/overbite if visible. Specify Angle class by side."'
+        placeholder="Example: Verify FDI: finding on 21 may be 12. Quantify overjet/overbite if visible. Specify Angle class by side."
       />
+      <div className="mt-1 text-xs muted">You can type feedback directly. Quotes are not required.</div>
 
       {status && (
         <div
@@ -213,7 +264,14 @@ export default function FeedbackPanel({ caseId, latestReportVersion, initialFeed
           role="status"
           aria-live="polite"
         >
-          {status.msg}
+          <div className="flex items-center justify-between gap-3">
+            <span>{status.msg}</span>
+            {status.kind === "ok" && (
+              <button onClick={openUpdatedPdf} className="btn btn-link text-sm underline" disabled={pdfBusy}>
+                Open updated PDF
+              </button>
+            )}
+          </div>
         </div>
       )}
 

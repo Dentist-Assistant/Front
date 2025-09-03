@@ -18,6 +18,15 @@ type State = {
   error: string | null;
 };
 
+type TreatmentGoal =
+  | {
+      summary?: string;
+      goals?: string[];
+      duration_months?: number | null;
+      notes?: string;
+    }
+  | null;
+
 function toNumber(v: unknown, def = 0): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
@@ -73,6 +82,29 @@ function normalizeGeometry(g: any) {
       .filter((b: any) => Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.w) && Number.isFinite(b.h));
   }
   return Object.keys(out).length ? out : null;
+}
+
+function coerceTreatmentGoal(raw: any): TreatmentGoal {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return null;
+    return { summary: s };
+  }
+  if (typeof raw === "object") {
+    const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : undefined;
+    const goals = Array.isArray(raw.goals) ? raw.goals.map((g: any) => String(g || "").trim()).filter(Boolean) : undefined;
+    const duration_months =
+      raw.duration_months === null
+        ? null
+        : Number.isFinite(Number(raw.duration_months))
+        ? Number(raw.duration_months)
+        : undefined;
+    const notes = typeof raw.notes === "string" && raw.notes.trim() ? raw.notes.trim() : undefined;
+    if (!summary && (!goals || goals.length === 0) && duration_months === undefined && !notes) return null;
+    return { summary, goals, duration_months, notes };
+  }
+  return null;
 }
 
 export default function useCaseDetail(caseId?: string | null) {
@@ -136,7 +168,9 @@ export default function useCaseDetail(caseId?: string | null) {
     const recommendations = Array.isArray(p.recommendations)
       ? p.recommendations.map((x: any) => asString(x)).filter(Boolean)
       : [];
-    const treatment_goal_final = asString(p.treatment_goal_final);
+    const treatment_goal_final = coerceTreatmentGoal(
+      p.treatment_goal_final ?? p.final_treatment_goal ?? p.treatment_goal
+    );
 
     const findingsRaw: any[] = Array.isArray(p.findings) ? p.findings : [];
     const findings = findingsRaw.map((f) => {
@@ -177,7 +211,7 @@ export default function useCaseDetail(caseId?: string | null) {
       occlusion,
       hygiene,
       recommendations,
-      treatment_goal_final: treatment_goal_final || null,
+      treatment_goal_final,
       findings,
       images: manifest,
       rebuttal,
@@ -205,14 +239,93 @@ export default function useCaseDetail(caseId?: string | null) {
     fetchDetail();
   }, [fetchDetail]);
 
+  useEffect(() => {
+    const onRebuttal = (e: Event) => {
+      const id = (e as CustomEvent).detail?.caseId as string | undefined;
+      if (!id || id === caseId) void fetchDetail();
+    };
+    const onTemplateUpsert = (e: Event) => {
+      const id = (e as CustomEvent).detail?.caseId as string | undefined;
+      if (!id || id === caseId) void fetchDetail();
+    };
+    window.addEventListener("ai:rebuttalSaved", onRebuttal as EventListener);
+    window.addEventListener("report:templateUpserted", onTemplateUpsert as EventListener);
+    return () => {
+      window.removeEventListener("ai:rebuttalSaved", onRebuttal as EventListener);
+      window.removeEventListener("report:templateUpserted", onTemplateUpsert as EventListener);
+    };
+  }, [caseId, fetchDetail]);
+
   const refresh = useCallback(async () => {
     await fetchDetail();
   }, [fetchDetail]);
+
+  const updateTreatmentGoalFinal = useCallback(
+    async (val: TreatmentGoal | string | null) => {
+      if (!caseId) throw new Error("Missing case id");
+      const supabase = getSupabaseBrowser();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) throw new Error("Unauthorized");
+
+      let next: TreatmentGoal = null;
+      if (typeof val === "string") {
+        const s = val.trim();
+        next = s ? { summary: s } : null;
+      } else if (val && typeof val === "object") {
+        const summary = typeof val.summary === "string" && val.summary.trim() ? val.summary.trim() : undefined;
+        const goals = Array.isArray(val.goals) ? val.goals.map((g) => String(g || "").trim()).filter(Boolean) : undefined;
+        const duration_months =
+          val.duration_months === null
+            ? null
+            : Number.isFinite(Number(val.duration_months))
+            ? Number(val.duration_months)
+            : undefined;
+        const notes = typeof val.notes === "string" && val.notes.trim() ? val.notes.trim() : undefined;
+        next =
+          !summary && (!goals || goals.length === 0) && duration_months === undefined && !notes
+            ? null
+            : { summary, goals, duration_months, notes };
+      } else {
+        next = null;
+      }
+
+      const patch: Record<string, any> = {};
+      if (next) patch.treatment_goal_final = next;
+
+      const res = await fetch("/api/reports/template/patch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ caseId, patch }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || "Failed to update");
+
+      setState((s) => {
+        if (!s?.data?.latestReport) return s;
+        const curr = s.data.latestReport;
+        const updated = {
+          ...curr,
+          payload: { ...curr.payload, treatment_goal_final: next },
+        };
+        return { ...s, data: { ...s.data, latestReport: updated } };
+      });
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("report:templateUpserted", { detail: { caseId, patch } }));
+      }
+      await fetchDetail();
+      return { ok: true as const };
+    },
+    [caseId, fetchDetail]
+  );
 
   return {
     data: state.data,
     isLoading: state.isLoading,
     error: state.error,
     refresh,
+    updateTreatmentGoalFinal,
   };
 }

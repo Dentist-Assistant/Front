@@ -661,13 +661,13 @@ export async function POST(req: Request) {
       ai = AIResponseSchema.parse({
         narrative: "",
         payload: {
-          summary: baseSummary,
-          measurements: baseMeasurements,
-          occlusion: baseOcclusion,
-          hygiene: baseHygiene,
-          recommendations: baseRecommendations,
-          treatment_goal_final: baseTreatmentGoalFinal,
-          confidence_overall: baseConfidenceOverall,
+          summary: "",
+          measurements: withDefaultMeasurements({}),
+          occlusion: withDefaultOcclusion({}),
+          hygiene: withDefaultHygiene({}),
+          recommendations: [],
+          treatment_goal_final: "",
+          confidence_overall: null,
           rebuttal: { narrative: "", updates: [], feedback_alignment: [], finding_changes: [] },
           images: imagesManifest,
           overlay_coords: "normalized_0_1",
@@ -811,4 +811,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message || "unexpected_error" }, { status: 500 });
   }
 }
-  

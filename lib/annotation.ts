@@ -84,7 +84,7 @@ export function defaultStyle(color: string): Style {
     stroke: color,
     strokeWidth: 3,
     fill: "#FFFFFF",
-    fillAlpha: 0.06,
+    fillAlpha: 0.14,
     lineDash: [],
     fontFamily: "Inter,system-ui,sans-serif",
     fontSize: 16,
@@ -241,7 +241,7 @@ export function drawGeometry(ctx: Ctx, g: Geometry, w: number, h: number, style:
     ctx.arc(c.cx, c.cy, c.r, 0, Math.PI * 2);
     if (style.fill && (style.fillAlpha ?? 0) > 0) {
       const prev = ctx.globalAlpha;
-      ctx.globalAlpha = style.fillAlpha ?? 0.06;
+      ctx.globalAlpha = style.fillAlpha ?? 0.14;
       ctx.fill();
       ctx.globalAlpha = prev;
     }
@@ -256,7 +256,7 @@ export function drawGeometry(ctx: Ctx, g: Geometry, w: number, h: number, style:
   (gg.boxes || []).forEach((b) => {
     if (style.fill && (style.fillAlpha ?? 0) > 0) {
       const prev = ctx.globalAlpha;
-      ctx.globalAlpha = style.fillAlpha ?? 0.06;
+      ctx.globalAlpha = style.fillAlpha ?? 0.14;
       ctx.fillRect(b.x, b.y, b.w, b.h);
       ctx.globalAlpha = prev;
     }
@@ -270,7 +270,7 @@ export function drawGeometry(ctx: Ctx, g: Geometry, w: number, h: number, style:
     ctx.closePath();
     if (style.fill && (style.fillAlpha ?? 0) > 0) {
       const prev = ctx.globalAlpha;
-      ctx.globalAlpha = style.fillAlpha ?? 0.06;
+      ctx.globalAlpha = style.fillAlpha ?? 0.14;
       ctx.fill();
       ctx.globalAlpha = prev;
     }

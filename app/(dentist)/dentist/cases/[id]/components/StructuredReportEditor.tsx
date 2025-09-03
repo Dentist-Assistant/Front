@@ -52,7 +52,7 @@ type Props = {
   onSaved?: () => void | Promise<void>;
 };
 
-const ENDPOINT_PATCH = "/api/reports/template/patch"; 
+const ENDPOINT_PATCH = "/api/reports/template/patch";
 
 function toNumberOrUndefined(v: string): number | undefined {
   if (!v.trim()) return undefined;
@@ -228,6 +228,9 @@ export default function StructuredReportEditor({ caseId, initial, onSaved }: Pro
       if (!res.ok) throw new Error(j?.error || "Failed to save changes");
 
       setOk("Saved");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("report:templateUpserted", { detail: { caseId, patch } }));
+      }
       await onSaved?.();
     } catch (e: any) {
       setErr(e?.message || "Save failed");
@@ -316,7 +319,7 @@ export default function StructuredReportEditor({ caseId, initial, onSaved }: Pro
       </div>
 
       <div className="rounded-xl border p-3">
-        <label className="label">Recommendations (una por línea)</label>
+        <label className="label">Recommendations (one per line)</label>
         <textarea
           className="textarea w-full"
           rows={4}
@@ -334,7 +337,7 @@ export default function StructuredReportEditor({ caseId, initial, onSaved }: Pro
           <textarea
             className="textarea sm:col-span-2"
             rows={3}
-            placeholder="Goals (una por línea)"
+            placeholder="Goals (one per line)"
             value={tgGoals}
             onChange={(e) => setTgGoals(e.target.value)}
           />

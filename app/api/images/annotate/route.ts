@@ -1,4 +1,3 @@
-// app/api/images/annotate/route.ts
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
@@ -70,8 +69,23 @@ const Body = z.object({
   ttl: z.number().int().positive().optional(),
 });
 
-function hexOrDefault(c?: string, d = "#FF3B30") {
+const SEV_COLOR = {
+  high: "#EF4444",
+  moderate: "#F59E0B",
+  low: "#34D399",
+};
+
+function hexOrDefault(c?: string, d = "#22D3EE") {
   return c && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c) ? c : d;
+}
+
+function hexToRgba(hex: string, a = 1) {
+  const h = hex.replace("#", "");
+  const n = h.length === 3 ? h.split("").map((ch) => ch + ch).join("") : h;
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, a))})`;
 }
 
 function centerOfBox(b: z.infer<typeof Box>) {
@@ -103,7 +117,7 @@ function svgForOverlays(
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`
   );
-  parts.push(`<g fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="${alpha}">`);
+  parts.push(`<g fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="${alpha}" shape-rendering="geometricPrecision">`);
   items.forEach((o, idx) => {
     const color = hexOrDefault(o.color);
     const label = labelFor(o, idx + 1);
@@ -124,7 +138,7 @@ function svgForOverlays(
         const y1 = denorm(l.y1, height, l.norm);
         const x2 = denorm(l.x2, width, l.norm);
         const y2 = denorm(l.y2, height, l.norm);
-        parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${strokeWidth}"/>`);
+        parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${strokeWidth}" />`);
         const c = centerOfLine(l);
         texts.push({ x: denorm(c.x, width, l.norm), y: denorm(c.y, height, l.norm) - 4 });
       });
@@ -136,7 +150,10 @@ function svgForOverlays(
         const w = denorm(b.w, width, b.norm);
         const h = denorm(b.h, height, b.norm);
         parts.push(
-          `<rect x="${x}" y="${y}" width="${w}" height="${h}" stroke="${color}" stroke-width="${strokeWidth}" fill="rgba(255,255,255,0.05)"/>`
+          `<rect x="${x}" y="${y}" width="${w}" height="${h}" stroke="${color}" stroke-width="${strokeWidth}" fill="${hexToRgba(
+            color,
+            0.14
+          )}"/>`
         );
         const c = centerOfBox(b);
         texts.push({ x: denorm(c.x, width, b.norm), y: denorm(c.y, height, b.norm) - 4 });
@@ -144,10 +161,10 @@ function svgForOverlays(
     }
     if (Array.isArray(g.polygons)) {
       g.polygons.forEach((p) => {
-        const pts = p.points
-          .map((pt) => `${denorm(pt.x, width, p.norm)},${denorm(pt.y, height, p.norm)}`)
-          .join(" ");
-        parts.push(`<polygon points="${pts}" stroke="${color}" stroke-width="${strokeWidth}" fill="rgba(255,255,255,0.05)"/>`);
+        const pts = p.points.map((pt) => `${denorm(pt.x, width, p.norm)},${denorm(pt.y, height, p.norm)}`).join(" ");
+        parts.push(
+          `<polygon points="${pts}" stroke="${color}" stroke-width="${strokeWidth}" fill="${hexToRgba(color, 0.14)}"/>`
+        );
         const first = p.points[0];
         texts.push({ x: denorm(first.x, width, p.norm), y: denorm(first.y, height, p.norm) - 4 });
       });
@@ -172,14 +189,17 @@ function overlaysFromFindings(findings?: z.infer<typeof FindingLike>[]) {
   if (!Array.isArray(findings)) return out;
   findings.forEach((f, i) => {
     if (!f.geometry) return;
+    const sev = String(f.severity || "").toLowerCase();
+    const color =
+      sev.includes("high")
+        ? SEV_COLOR.high
+        : sev.includes("mod")
+        ? SEV_COLOR.moderate
+        : SEV_COLOR.low;
     out.push({
       finding_index: i + 1,
       label: f.tooth_fdi ? `FDI ${f.tooth_fdi}` : undefined,
-      color: f.severity?.toLowerCase().includes("high")
-        ? "#FF3B30"
-        : f.severity?.toLowerCase().includes("mod")
-        ? "#FF9500"
-        : "#34C759",
+      color,
       geometry: f.geometry,
     });
   });
@@ -256,7 +276,8 @@ export async function POST(req: Request) {
 
     const overlaysInput = overlays.length ? overlays : overlaysFromFindings(findings);
     const svg = svgForOverlays(width, height, overlaysInput, strokeWidth, alpha);
-    const outSharp = sharp(baseBuf).composite([{ input: svg, top: 0, left: 0 }]);
+
+    const outSharp = sharp(baseBuf).composite([{ input: svg, top: 0, left: 0, blend: "over" }]);
     let outBuf: Buffer;
     let contentType: string;
     if (format === "png") {

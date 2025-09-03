@@ -25,7 +25,62 @@ export type AIModelParams = {
 export const DEFAULT_MODEL_PARAMS: AIModelParams = {
   temperature: 0.2,
   maxTokens: 800,
-  topP: 1
+  topP: 1,
+};
+
+
+export type Normalized = number;
+
+
+export type NormalizedPoint = [Normalized, Normalized];
+
+
+export type OverlayNormalized =
+  | {
+      type: "circle";
+      center: NormalizedPoint;
+      radius: Normalized;
+      points: null;
+      bbox: null;
+      label?: string | null;
+    }
+  | {
+    type: "line";
+    center: null;
+    radius: null;
+    points: [NormalizedPoint, NormalizedPoint];
+    bbox: null;
+    label?: string | null;
+  }
+  | {
+      type: "polyline";
+      center: null;
+      radius: null;
+      points: NormalizedPoint[]; 
+      bbox: null;
+      label?: string | null;
+    }
+  | {
+      type: "polygon";
+      center: null;
+      radius: null;
+      points: NormalizedPoint[]; 
+      bbox: null;
+      label?: string | null;
+    }
+  | {
+      type: "bbox";
+      center: null;
+      radius: null;
+      points: null;
+      bbox: [Normalized, Normalized, Normalized, Normalized]; 
+      label?: string | null;
+    };
+
+
+export type GeometryNormalized = {
+  overlays: OverlayNormalized[];
+  coordSpace: "normalized_0_1";
 };
 
 const uuidRx =
@@ -43,8 +98,75 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === "string");
+}
+
+function stripOuterQuotes(text: string) {
+  let out = String(text ?? "").trim();
+  const pairs: Array<[string, string]> = [
+    ['"', '"'],
+    ["'", "'"],
+    ["“", "”"],
+    ["‘", "’"],
+    ["«", "»"],
+    ["`", "`"],
+  ];
+  for (const [l, r] of pairs) {
+    if (out.startsWith(l) && out.endsWith(r) && out.length >= 2) {
+      out = out.slice(l.length, -r.length).trim();
+      break;
+    }
+  }
+  return out;
+}
+
 function sanitizeText(text: string, limit = 4000) {
-  return text.replace(/\s+/g, " ").trim().slice(0, limit);
+  const unquoted = stripOuterQuotes(text);
+  return unquoted.replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+
+export function normalizeCritiqueToList(input: unknown, maxItems = 50): string[] {
+  let merged = "";
+  if (isStringArray(input)) {
+    merged = input.filter(isNonEmptyString).join("\n");
+  } else if (isNonEmptyString(input)) {
+    merged = input;
+  } else {
+    return [];
+  }
+
+  let s = stripOuterQuotes(merged).trim();
+
+  s = s
+    .replace(/\u2022|•|·/g, "\n")
+    .replace(/(?:^|\s)(\d+[\.\)]\s+)/g, "\n$1")
+    .replace(/;\s*/g, "\n")
+    .replace(/\r?\n{2,}/g, "\n")
+    .trim();
+
+  const parts = s
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/^\s*(\d+[\.\)]\s+|[-–—]\s+|•\s+|·\s+)?/, "")
+        .trim()
+    )
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of parts) {
+    const clean = sanitizeText(p);
+    if (!clean) continue;
+    if (!seen.has(clean)) {
+      seen.add(clean);
+      out.push(clean);
+      if (out.length >= maxItems) break;
+    }
+  }
+  return out;
 }
 
 export function parseDraftInput(payload: unknown): DraftInput {
@@ -90,7 +212,7 @@ export function parseDraftInput(payload: unknown): DraftInput {
           code,
           severity,
           source,
-          createdAt
+          createdAt,
         };
       })
       .filter((f) => isNonEmptyString(f.description));
@@ -100,7 +222,7 @@ export function parseDraftInput(payload: unknown): DraftInput {
     prompt: sanitizeText(String(prompt)),
     findings: parsedFindings,
     lang: lang === "en" || lang === "es" ? lang : "es",
-    tone: tone === "detailed" || tone === "concise" ? tone : "concise"
+    tone: tone === "detailed" || tone === "concise" ? tone : "concise",
   };
   return parsed;
 }
@@ -110,20 +232,30 @@ export function parseRebuttalInput(payload: unknown): RebuttalInput {
     throw new Error("Invalid body");
   }
   const caseId = payload.caseId;
-  const claim = payload.claim;
-  const context = payload.context;
-  const lang = payload.lang;
+  const claimRaw = (payload as any).claim;
+  const contextRaw = (payload as any).context;
+  const lang = (payload as any).lang;
+
   if (!isUUID(caseId)) {
     throw new Error("Invalid caseId");
   }
-  if (!isNonEmptyString(claim)) {
+
+  let claim = "";
+  if (isStringArray(claimRaw)) {
+    claim = claimRaw.filter(isNonEmptyString).map(stripOuterQuotes).join("\n");
+  } else if (isNonEmptyString(claimRaw)) {
+    claim = stripOuterQuotes(claimRaw);
+  } else {
     throw new Error("Invalid claim");
   }
+
+  const context = isNonEmptyString(contextRaw) ? sanitizeText(String(contextRaw)) : undefined;
+
   const parsed: RebuttalInput = {
     caseId: caseId as UUID,
     claim: sanitizeText(String(claim)),
-    context: isNonEmptyString(context) ? sanitizeText(String(context)) : undefined,
-    lang: lang === "en" || lang === "es" ? lang : "es"
+    context,
+    lang: lang === "en" || lang === "es" ? lang : "es",
   };
   return parsed;
 }

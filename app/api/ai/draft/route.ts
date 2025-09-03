@@ -389,12 +389,19 @@ Authoring rules:
 4) If a field is not assessable, use null (or [] for arrays). Never invent measurements.
 5) Numbers must be numeric and rounded to 2 decimals when applicable.
 6) The "treatment_goal_final" must be a single-sentence clinical objective, based on the visible findings.
+7) Justify each finding within its observation text: specify what is seen, where (surface/region), reference image_index and clinical cues supporting the severity level.
+8) Recommendations must be evidence-linked: each recommendation string should state the action, the indication(s), and reference the specific tooth numbers (FDI) and image indices that support it; include expected benefit and prerequisites when relevant.
+9) All overlay geometry must be normalized to [0..1] with two decimals; never output pixel coordinates.
 
 Coverage:
 • Iterate over each image in order (0..n-1) and inspect thoroughly.
 • Aim for 3–8 tooth-level findings per image when anatomy is visible and in focus.
 • If multiple images show the same finding, keep a single entry linked to the clearest image only.
 • Each tooth-level finding must include: tooth_fdi, precise observation string (include surface/location if visible), severity, confidence, image_index, image_id, and overlays.
+
+Recommendations formatting:
+• Use concise strings like "Clear aligner therapy — moderate anterior crowding (FDI 12–23), evidence on image 2; expected to improve alignment and overjet."
+• For hygiene or periodontal recommendations, include the observed sign and where it appears (e.g., "Hygiene reinforcement — plaque accumulation buccal (FDI 26–27), images 1–2").
 
 Overlays (mandatory when the finding is visible):
 • Coordinate system is normalized [0..1] in image space.

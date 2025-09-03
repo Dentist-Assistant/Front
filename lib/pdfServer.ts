@@ -1,3 +1,4 @@
+// lib/pdfServer.ts
 export type Severity = "low" | "medium" | "high";
 
 export type ReviewPacketUpdate = {
@@ -14,7 +15,7 @@ export type ReviewPacketImageFinding = {
   index?: number;
 };
 
-export type Point = { x: number; y: number };
+export type Point = { x: number; y: number; norm?: boolean };
 export type Circle = { cx: number; cy: number; r: number; norm?: boolean };
 export type Line = { x1: number; y1: number; x2: number; y2: number; norm?: boolean };
 export type Polygon = { points: Point[]; norm?: boolean };
@@ -64,7 +65,9 @@ export type ReviewPacketData = {
       reason: string;
       linkedUpdates: number[];
     }[];
+    finding_changes?: any[];
   };
+  treatmentGoalFinal?: any;
 };
 
 export type ReviewCompareData = {
@@ -97,11 +100,18 @@ function formatDate(d?: string | Date) {
 }
 
 function severityLabel(s: Severity) {
-  return s === "high" ? "High" : s === "medium" ? "Medium" : "Low";
+  return s === "high" ? "High" : s === "medium" ? "Moderate" : "Low";
+}
+
+function normSeverity(s?: string): Severity {
+  const v = String(s || "").toLowerCase();
+  if (v.includes("high") || v.includes("severe")) return "high";
+  if (v.includes("moder") || v.includes("med")) return "medium";
+  return "low";
 }
 
 function severityColor(s: Severity) {
-  return s === "high" ? "var(--color-danger)" : s === "medium" ? "var(--color-warning)" : "var(--color-success)";
+  return s === "high" ? "#EF4444" : s === "medium" ? "#F59E0B" : "#34D399";
 }
 
 function escapeHtml(s: string) {
@@ -117,6 +127,19 @@ function nl2br(s?: string) {
   return escapeHtml(s || "").replace(/\r?\n/g, "<br/>");
 }
 
+function coerceFinalGoal(val: any): string {
+  if (typeof val === "string") return val.trim();
+  if (val && typeof val === "object") {
+    const parts: string[] = [];
+    if (typeof val.summary === "string" && val.summary.trim()) parts.push(val.summary.trim());
+    if (Array.isArray(val.goals) && val.goals.length) parts.push(val.goals.map((g: any) => `• ${String(g)}`).join(" "));
+    if (Number.isFinite(val.duration_months)) parts.push(`Estimated duration: ${val.duration_months} months`);
+    if (typeof val.notes === "string" && val.notes.trim()) parts.push(val.notes.trim());
+    return parts.join(" ").trim();
+  }
+  return "";
+}
+
 function tableRows(rows: { tooth: string; note: string; severity: Severity }[]) {
   if (!rows?.length) {
     return `<tr><td colspan="4" class="muted" style="text-align:center">No findings</td></tr>`;
@@ -124,12 +147,12 @@ function tableRows(rows: { tooth: string; note: string; severity: Severity }[]) 
   return rows
     .map(
       (f, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${escapeHtml(f.tooth)}</td>
-        <td>${escapeHtml(f.note || "")}</td>
-        <td><span style="color:${severityColor(f.severity)};font-weight:600">${severityLabel(f.severity)}</span></td>
-      </tr>`
+        <tr>
+            <td>${i + 1}</td>
+            <td>${escapeHtml(f.tooth)}</td>
+            <td>${escapeHtml(f.note || "")}</td>
+            <td><span class="sev ${f.severity === "high" ? "sev-high" : f.severity === "medium" ? "sev-med" : "sev-low"}">${severityLabel(f.severity)}</span></td>
+        </tr>`
     )
     .join("");
 }
@@ -180,57 +203,41 @@ function diffFindings(
 
 function baseStyles() {
   return `
-  :root{
-    --color-bg:#0B1220; --color-surface:#0F172A; --color-primary:#22D3EE;
-    --color-success:#34D399; --color-warning:#F59E0B; --color-danger:#EF4444;
-    --color-text:#E2E8F0; --color-muted:#94A3B8; --radius-xl:1rem; --radius-2xl:1.25rem;
-  }
+  :root { --text:#0b0c0e; --muted:#5a6472; --bg:#ffffff; --border:#e5e7eb; --accent:#2563eb; }
   *{box-sizing:border-box}
-  html,body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-  .page{max-width:980px;margin:0 auto;padding:32px}
-  .card{background:var(--color-surface);border:1px solid rgba(226,232,240,.08);box-shadow:0 8px 30px rgba(0,0,0,.25);border-radius:var(--radius-2xl);overflow:hidden}
-  .header{padding:28px 28px 16px;border-bottom:1px solid rgba(226,232,240,.06)}
-  .title{font-size:22px;font-weight:700;margin:0 0 6px}
-  .meta{display:flex;flex-wrap:wrap;gap:12px;color:var(--color-muted);font-size:13px}
-  .chip{display:inline-flex;align-items:center;gap:8px;padding:4px 10px;border-radius:999px;background:rgba(34,211,238,.12);color:var(--color-primary);font-weight:600;font-size:12px}
-  .section{padding:22px 28px}
-  .section h3{margin:0 0 12px;font-size:16px;opacity:.95;letter-spacing:.2px}
-  .muted{color:var(--color-muted)}
-  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-  .panel{border:1px solid rgba(226,232,240,.06);border-radius:14px;padding:14px}
-  .panel h4{margin:0 0 8px;font-size:14px;color:var(--color-text)}
-  table{width:100%;border-collapse:collapse}
-  th,td{padding:12px 10px;border-bottom:1px solid rgba(226,232,240,.06);vertical-align:top;font-size:13px}
-  thead th{text-align:left;color:var(--color-muted);font-weight:600}
-  tbody tr:hover{background:rgba(34,211,238,.06)}
-  .grid-img{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:8px}
-  figure{margin:0;background:rgba(226,232,240,.03);border:1px solid rgba(226,232,240,.06);border-radius:14px;overflow:hidden}
-  .img-wrap{position:relative;width:100%;background:#000}
-  .img-wrap img{display:block;width:100%;height:100%;object-fit:contain;background:#000}
-  .img-wrap svg{position:absolute;inset:0;width:100%;height:100%}
-  figcaption{padding:8px 10px;color:var(--color-muted);font-size:12px;border-top:1px solid rgba(226,232,240,.06)}
-  .updates{margin:10px 0 0 18px}
-  .updates li{margin:8px 0 14px}
-  .upd-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:4px}
-  .pill{padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid rgba(226,232,240,.14)}
-  .action-add{background:color-mix(in oklab, var(--color-success) 18%, transparent)}
-  .action-modify{background:color-mix(in oklab, var(--color-warning) 18%, transparent)}
-  .action-remove{background:color-mix(in oklab, var(--color-danger) 18%, transparent)}
-  .delta-add{color:var(--color-success)}
-  .delta-rem{color:var(--color-danger)}
-  .delta-mod{color:var(--color-warning)}
-  .footer{padding:18px 28px;border-top:1px solid rgba(226,232,240,.06);color:var(--color-muted);font-size:12px;display:flex;justify-content:space-between;gap:12px}
-  .brand{font-weight:700;color:var(--color-primary)}
-  .legend{margin-top:10px;border:1px solid rgba(226,232,240,.06);border-radius:12px;overflow:hidden}
-  .legend table{width:100%}
-  .legend th,.legend td{padding:8px 10px;font-size:12px}
-  .page-break{page-break-before:always}
-  @media print {.page{max-width:100%;padding:0} .card{border:none;box-shadow:none;border-radius:0} .section{padding:16px} .grid-img{grid-template-columns:1fr} .page-break{page-break-before:always}}
+  body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif; color:var(--text); background:#fff; margin:0; padding:24px}
+  h1{font-size:22px;margin:0 0 8px}
+  h2{font-size:16px;margin:0 0 10px}
+  h3{font-size:14px;margin:0 0 8px}
+  p{margin:6px 0}
+  small{color:var(--muted)}
+  .card{border:1px solid var(--border); border-radius:12px; padding:14px; margin:10px 0; background:#fff}
+  .grid{display:grid; gap:10px}
+  .grid-2{grid-template-columns:1fr 1fr}
+  .grid-3{grid-template-columns:1fr 1fr 1fr}
+  .table{width:100%; border-collapse:collapse; font-size:12px}
+  .table th,.table td{border-top:1px solid var(--border); padding:8px; text-align:left; vertical-align:top}
+  .badges{display:flex; gap:6px; flex-wrap:wrap}
+  .badge{display:inline-block; border:1px solid var(--border); border-radius:999px; padding:2px 8px; font-size:11px; color:var(--muted)}
+  .sev{display:inline-block; border-radius:8px; padding:1px 6px; font-size:11px; margin-left:6px; border:1px solid}
+  .sev-low{color:#066e2e; border-color:#a7f3d0; background:#ecfdf5}
+  .sev-med{color:#8a4b00; border-color:#fde68a; background:#fffbeb}
+  .sev-high{color:#991b1b; border-color:#fecaca; background:#fef2f2}
+  .header{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:12px}
+  .kv{display:grid; grid-template-columns:180px 1fr; gap:6px; font-size:12px}
+  .img-wrap{position:relative; width:100%; background:transparent; border-radius:12px; overflow:hidden; border:1px solid var(--border)}
+  .img-wrap img{display:block; width:100%; height:auto; object-fit:contain; background:transparent}
+  .img-wrap svg{position:absolute; inset:0; width:100%; height:100%}
+  .legend{margin:10px 0 0 0; padding-left:16px; font-size:12px}
+  .legend table{width:100%; border-collapse:collapse}
+  .legend th,.legend td{border-top:1px solid var(--border); padding:8px; text-align:left; vertical-align:top; font-size:12px}
+  .page{page-break-after:auto; padding:8px 0}
+  .image-page .legend{break-inside:avoid}
+  .final-goal{border:2px solid #111827; border-radius:12px; padding:12px; margin-top:8px; background:#f9fafb}
   `;
 }
 
-function hexOrDefault(c?: string, d = "#22D3EE") {
+function hexOrDefault(c?: string, d = "#2563eb") {
   return c && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c) ? c : d;
 }
 
@@ -243,9 +250,9 @@ function svgOverlay(width: number, height: number, overlays?: ImageOverlay[]) {
   const parts: string[] = [];
   parts.push(`<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">`);
   overlays.forEach((o, idx) => {
-    const color = hexOrDefault(o.color);
+    const color = hexOrDefault(o.color, "#EF4444");
     const g = o.geometry || {};
-    const label = o.label || (o.findingIndex ? `#${o.findingIndex}` : `#${idx + 1}`);
+    const label = o.label || (o.findingIndex ? String(o.findingIndex) : String(idx + 1));
     const texts: Array<{ x: number; y: number }> = [];
     (g.circles || []).forEach((c) => {
       const cx = denorm(c.cx, width, c.norm);
@@ -259,7 +266,7 @@ function svgOverlay(width: number, height: number, overlays?: ImageOverlay[]) {
       const y1 = denorm(l.y1, height, l.norm);
       const x2 = denorm(l.x2, width, l.norm);
       const y2 = denorm(l.y2, height, l.norm);
-      parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="3"/>`);
+      parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="3" />`);
       texts.push({ x: (x1 + x2) / 2, y: (y1 + y2) / 2 - 6 });
     });
     (g.boxes || []).forEach((b) => {
@@ -267,65 +274,68 @@ function svgOverlay(width: number, height: number, overlays?: ImageOverlay[]) {
       const y = denorm(b.y, height, b.norm);
       const w = denorm(b.w, width, b.norm);
       const h = denorm(b.h, height, b.norm);
-      parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" stroke="${color}" stroke-width="3" fill="rgba(255,255,255,0.06)"/>`);
+      parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" stroke="${color}" stroke-width="3" fill="${color}" fill-opacity="0.14"/>`);
       texts.push({ x: x + w / 2, y: y - 6 });
     });
     (g.polygons || []).forEach((p) => {
       const pts = p.points.map((pt) => `${denorm(pt.x, width, p.norm)},${denorm(pt.y, height, p.norm)}`).join(" ");
-      parts.push(`<polygon points="${pts}" stroke="${color}" stroke-width="3" fill="rgba(255,255,255,0.06)"/>`);
+      parts.push(`<polygon points="${pts}" stroke="${color}" stroke-width="3" fill="${color}" fill-opacity="0.14"/>`);
       const f = p.points[0];
       texts.push({ x: denorm(f.x, width, p.norm), y: denorm(f.y, height, p.norm) - 6 });
     });
-    texts.slice(0, 1).forEach((t) => {
-      const tx = Math.max(6, Math.min(width - 6, t.x));
-      const ty = Math.max(14, Math.min(height - 6, t.y));
+    if (texts.length) {
+      const t0 = texts[0];
+      const tx = Math.max(6, Math.min(width - 6, t0.x));
+      const ty = Math.max(14, Math.min(height - 6, t0.y));
       parts.push(
         `<g font-family="Inter,system-ui,sans-serif" font-size="${Math.max(12, Math.round(width * 0.016))}" font-weight="700">` +
-          `<rect x="${tx - 8}" y="${ty - 16}" width="${label.length * 8 + 16}" height="20" rx="4" ry="4" fill="rgba(0,0,0,0.55)"/>` +
-          `<text x="${tx}" y="${ty}" fill="#ffffff">${escapeHtml(label)}</text>` +
+          `<circle cx="${tx}" cy="${ty - 4}" r="10" fill="#111827" stroke="#ffffff" stroke-width="2"/>` +
+          `<text x="${tx}" y="${ty - 4}" fill="#ffffff" dominant-baseline="middle" text-anchor="middle">${escapeHtml(label)}</text>` +
         `</g>`
       );
-    });
+    }
   });
   parts.push(`</svg>`);
   return parts.join("");
 }
 
 function imageFigure(img: ReviewPacketImage, idx: number, perImagePage = false) {
-  const w = img.width && img.width > 0 ? img.width : 1200;
-  const h = img.height && img.height > 0 ? img.height : 900;
+  const w = img.width && img.width > 0 ? img.width : 1000;
+  const h = img.height && img.height > 0 ? img.height : 750;
   const ratio = `${w}/${h}`;
   const overlaySvg = svgOverlay(w, h, img.overlays);
-  const legendRows = (img.findings || []).map((f, i) => {
-    const num = typeof f.index === "number" ? f.index : i + 1;
-    return `
-      <tr>
-        <td>${num}</td>
-        <td>${escapeHtml(String(f.tooth))}</td>
-        <td>${escapeHtml(f.note || "")}</td>
-        <td><span style="color:${severityColor(f.severity)};font-weight:600">${severityLabel(f.severity)}</span></td>
-      </tr>
-    `;
-  }).join("");
+  const legendRows = (img.findings || [])
+    .map((f, i) => {
+      const num = typeof f.index === "number" ? f.index : i + 1;
+      return `
+        <tr>
+            <td>${num}</td>
+            <td>${escapeHtml(String(f.tooth))}</td>
+            <td>${escapeHtml(f.note || "")}</td>
+            <td><span class="sev ${f.severity === "high" ? "sev-high" : f.severity === "medium" ? "sev-med" : "sev-low"}">${severityLabel(f.severity)}</span></td>
+        </tr>
+        `;
+    })
+    .join("");
   return `
-    <figure class="${perImagePage ? "page-break" : ""}">
-      <div class="img-wrap" style="aspect-ratio:${ratio}">
-        <img src="${img.url}" alt="${escapeHtml(img.caption || `Image ${img.index ?? idx + 1}`)}"/>
-        ${overlaySvg}
-      </div>
-      ${img.caption ? `<figcaption>${escapeHtml(img.caption)}</figcaption>` : "<figcaption></figcaption>"}
-      ${
-        legendRows
-          ? `<div class="legend" role="region" aria-label="Legend for image ${img.index ?? idx + 1}">
-              <table>
-                <thead><tr><th>#</th><th>Tooth (FDI)</th><th>Finding</th><th>Severity</th></tr></thead>
-                <tbody>${legendRows}</tbody>
-              </table>
-            </div>`
-          : ""
-      }
-    </figure>
-  `;
+        <figure class="${perImagePage ? "page" : ""}">
+        <div class="img-wrap" style="aspect-ratio:${ratio}">
+            <img src="${img.url}" alt="${escapeHtml(img.caption || `Image ${img.index ?? idx + 1}`)}"/>
+            ${overlaySvg}
+        </div>
+        ${img.caption ? `<figcaption>${escapeHtml(img.caption)}</figcaption>` : "<figcaption></figcaption>"}
+        ${
+          legendRows
+            ? `<div class="legend" role="region" aria-label="Legend for image ${img.index ?? idx + 1}">
+                <table class="table">
+                    <thead><tr><th>#</th><th>Tooth (FDI)</th><th>Finding</th><th>Severity</th></tr></thead>
+                    <tbody>${legendRows}</tbody>
+                </table>
+              </div>`
+            : ""
+        }
+        </figure>
+    `;
 }
 
 function groupToothMap(rows: { tooth: string; note: string; severity: Severity }[]) {
@@ -346,137 +356,257 @@ function groupToothMap(rows: { tooth: string; note: string; severity: Severity }
   return list
     .map(
       (t, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${escapeHtml(t.tooth)}</td>
-        <td>
-          <div>${escapeHtml(t.notes.join("; "))}</div>
-          <div style="margin-top:2px;color:${severityColor(t.severity)};font-weight:600">${severityLabel(t.severity)}</div>
-        </td>
-      </tr>`
+        <tr>
+            <td>${i + 1}</td>
+            <td>${escapeHtml(t.tooth)}</td>
+            <td>
+            <div>${escapeHtml(t.notes.join("; "))}</div>
+            <div style="margin-top:2px" class="sev ${t.severity === "high" ? "sev-high" : t.severity === "medium" ? "sev-med" : "sev-low"}">${severityLabel(t.severity)}</div>
+            </td>
+        </tr>`
     )
     .join("");
 }
 
+function coerceGeometryFromOverlays(overlays: any): Geometry {
+  const arr = Array.isArray(overlays) ? overlays : Array.isArray(overlays?.geometry) ? overlays.geometry : [];
+  const g: Geometry = {};
+  for (const o of arr) {
+    const t = String(o?.type || "").toLowerCase();
+    if (t === "circle" || t === "ellipse") {
+      const cx = Number(o?.center?.[0]);
+      const cy = Number(o?.center?.[1]);
+      const r = Number(o?.radius);
+      if (Number.isFinite(cx) && Number.isFinite(cy) && Number.isFinite(r)) {
+        g.circles = g.circles || [];
+        g.circles.push({ cx, cy, r, norm: true });
+      }
+      continue;
+    }
+    if (t === "bbox" || t === "rect" || t === "rectangle" || t === "box") {
+      const b = Array.isArray(o?.bbox) ? o.bbox : Array.isArray(o?.box) ? o.box : Array.isArray(o?.rect) ? o.rect : null;
+      if (b && b.length >= 4) {
+        g.boxes = g.boxes || [];
+        g.boxes.push({ x: Number(b[0]), y: Number(b[1]), w: Number(b[2]), h: Number(b[3]), norm: true });
+      }
+      continue;
+    }
+    if (t === "line") {
+      const pts = Array.isArray(o?.points) ? o.points : [];
+      if (pts.length >= 2) {
+        const [p1, p2] = pts;
+        g.lines = g.lines || [];
+        g.lines.push({ x1: Number(p1[0]), y1: Number(p1[1]), x2: Number(p2[0]), y2: Number(p2[1]), norm: true });
+      }
+      continue;
+    }
+    if (t === "polyline" || t === "polygon") {
+      const pts = Array.isArray(o?.points) ? o.points : [];
+      if (pts.length >= 2) {
+        g.polygons = g.polygons || [];
+        g.polygons.push({ points: pts.map((p: any) => ({ x: Number(p[0]), y: Number(p[1]), norm: true })), norm: true });
+      }
+      continue;
+    }
+  }
+  return g;
+}
+
+function applyFindingChanges(findings: { tooth: string; note: string; severity: Severity }[], images: ReviewPacketImage[] | undefined, changes: any[]) {
+  if (!Array.isArray(changes) || changes.length === 0) return { findings, images: images || [] };
+  const outFindings = [...(findings || [])];
+  const outImages = (images || []).map((im) => ({ ...im, overlays: [...(im.overlays || [])], findings: [...(im.findings || [])] }));
+
+  for (const ch of changes) {
+    const action = String(ch?.action || ch?.op || "modify").toLowerCase();
+    const tooth = ch?.tooth_fdi ?? ch?.tooth ?? ch?.toothNumber ?? null;
+    const note = ch?.text ?? ch?.note ?? null;
+    const sev = ch?.severity ? normSeverity(ch.severity) : undefined;
+    const imgIndex =
+      Number.isInteger(ch?.image_index) ? Number(ch.image_index) :
+      Number.isInteger(ch?.image) ? Number(ch.image) :
+      undefined;
+
+    if (action === "remove") {
+      const idx = outFindings.findIndex((f) => (tooth == null || String(f.tooth) === String(tooth)) && (note == null || String(f.note).toLowerCase() === String(note).toLowerCase()));
+      if (idx >= 0) outFindings.splice(idx, 1);
+      continue;
+    }
+
+    if (action === "add") {
+      outFindings.push({
+        tooth: tooth != null ? String(tooth) : "",
+        note: note != null ? String(note) : "",
+        severity: sev || "low",
+      });
+    }
+
+    if (action === "modify") {
+      const idx = outFindings.findIndex((f) => (tooth != null ? String(f.tooth) === String(tooth) : true) && (note != null ? String(f.note).toLowerCase() === String(note).toLowerCase() : true));
+      if (idx >= 0) {
+        const prev = outFindings[idx];
+        outFindings[idx] = {
+          tooth: tooth != null ? String(tooth) : prev.tooth,
+          note: note != null ? String(note) : prev.note,
+          severity: sev || prev.severity,
+        };
+      } else if (tooth != null || note != null || sev) {
+        outFindings.push({
+          tooth: tooth != null ? String(tooth) : "",
+          note: note != null ? String(note) : "",
+          severity: sev || "low",
+        });
+      }
+    }
+
+    if (ch?.overlays || ch?.geometry) {
+      const g = coerceGeometryFromOverlays(ch?.overlays ?? ch?.geometry);
+      const color = sev ? severityColor(sev) : "#EF4444";
+      const targetIdx = typeof imgIndex === "number" && imgIndex >= 0 && imgIndex < outImages.length ? imgIndex : 0;
+      if (outImages[targetIdx]) {
+        const nextIndex = (outImages[targetIdx].findings?.length || 0) + (outImages[targetIdx].overlays?.length || 0) + 1;
+        outImages[targetIdx].overlays = outImages[targetIdx].overlays || [];
+        outImages[targetIdx].overlays.push({
+          findingIndex: nextIndex,
+          label: String(tooth ?? nextIndex),
+          color,
+          geometry: g,
+        });
+        if (tooth != null || note != null || sev) {
+          outImages[targetIdx].findings = outImages[targetIdx].findings || [];
+          outImages[targetIdx].findings.push({
+            tooth: String(tooth ?? ""),
+            note: String(note ?? ""),
+            severity: sev || "low",
+            index: nextIndex,
+          });
+        }
+      }
+    }
+  }
+
+  return { findings: outFindings, images: outImages };
+}
+
 export function buildReviewPacketHTML(data: ReviewPacketData) {
   const created = formatDate(data.createdAt || new Date());
-  const rows = tableRows(data.findings || []);
+  const withChanges = data.rebuttal?.finding_changes ? applyFindingChanges(data.findings || [], data.images || [], data.rebuttal.finding_changes) : { findings: data.findings || [], images: data.images || [] };
+  const rows = tableRows(withChanges.findings);
   const updatesList = (data.rebuttal?.updates || [])
     .map(
       (u, idx) => `
-      <li>
-        <div class="upd-head">
-          <span class="pill action-${u.action}">${u.action}</span>
-          <strong>${escapeHtml(u.topic || "Untitled")}</strong>
-          <span class="muted">#${idx + 1}</span>
-        </div>
-        ${u.text ? `<div class="upd-text">${nl2br(u.text)}</div>` : ""}
-        ${u.rationale ? `<div class="upd-rationale"><em>Reason:</em> ${nl2br(u.rationale)}</div>` : ""}
-      </li>`
+        <li>
+            <div class="upd-head">
+            <span class="badge">${u.action}</span>
+            <strong>${escapeHtml(u.topic || "Untitled")}</strong>
+            <span class="muted">#${idx + 1}</span>
+            </div>
+            ${u.text ? `<div class="upd-text">${nl2br(u.text)}</div>` : ""}
+            ${u.rationale ? `<div class="upd-rationale"><em>Reason:</em> ${nl2br(u.rationale)}</div>` : ""}
+        </li>`
     )
     .join("");
 
   const alignmentTable = (data.rebuttal?.feedbackAlignment || [])
     .map(
       (a) => `
-      <tr>
-        <td>${a.itemNumber || ""}</td>
-        <td>${nl2br(a.itemText || "")}</td>
-        <td>${escapeHtml(a.decision || "")}</td>
-        <td>${nl2br(a.reason || "")}</td>
-        <td>${Array.isArray(a.linkedUpdates) ? a.linkedUpdates.join(", ") : ""}</td>
-      </tr>`
+        <tr>
+            <td>${a.itemNumber || ""}</td>
+            <td>${nl2br(a.itemText || "")}</td>
+            <td>${escapeHtml(a.decision || "")}</td>
+            <td>${nl2br(a.reason || "")}</td>
+            <td>${Array.isArray(a.linkedUpdates) ? a.linkedUpdates.join(", ") : ""}</td>
+        </tr>`
     )
     .join("");
 
-  const imagesGrid = (data.images || []).map((img, i) => imageFigure(img, i, false)).join("");
+  const imagesGrid = (withChanges.images || []).map((img, i) => imageFigure(img, i, false)).join("");
 
-  const toothMap = groupToothMap(data.findings || []);
+  const toothMap = groupToothMap(withChanges.findings);
+
+  const finalGoal = coerceFinalGoal(data.treatmentGoalFinal);
 
   return `
-<!DOCTYPE html>
-<html lang="en">
+  <!DOCTYPE html>
+  <html lang="en">
   <head>
-    <meta charSet="utf-8"/>
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <title>Case ${escapeHtml(data.caseId)}</title>
-    <style>${baseStyles()}</style>
+      <meta charSet="utf-8"/>
+      <meta name="viewport" content="width=device-width,initial-scale=1"/>
+      <title>Case ${escapeHtml(data.caseId)}</title>
+      <style>${baseStyles()}</style>
   </head>
   <body>
-    <main class="page">
+      <main class="page">
       <section class="card">
-        <header class="header">
-          <div class="chip">Standard Report</div>
-          <h1 class="title">Case ${escapeHtml(data.caseId)}</h1>
-          <div class="meta">
-            <span>Patient: <strong>${escapeHtml(data.patientName)}</strong></span>
-            ${data.doctorName ? `<span>Doctor: <strong>${escapeHtml(data.doctorName)}</strong></span>` : ""}
-            ${data.technicianName ? `<span>Technician: <strong>${escapeHtml(data.technicianName)}</strong></span>` : ""}
-            <span>Date: ${created}</span>
+          <div class="header">
+            <div>
+              <h1>Review Packet</h1>
+              <small>Case ${escapeHtml(data.caseId)}</small>
+            </div>
+            <div class="badges">
+              <span class="badge">${created}</span>
+            </div>
           </div>
-        </header>
 
-        <section class="section">
-          <h3>Summary</h3>
-          <p>${nl2br(data.summary || "No summary provided")}</p>
-        </section>
+          <section class="card">
+            <h2>Summary</h2>
+            <p>${nl2br(data.summary || "No summary provided")}</p>
+          </section>
 
-        <section class="section">
-          <h3>Findings</h3>
-          <div style="overflow:auto;border:1px solid rgba(226,232,240,.06);border-radius:12px">
-            <table role="table" aria-label="Findings">
+          ${finalGoal ? `<section class="card"><h2>Final treatment goal</h2><div class="final-goal">${escapeHtml(finalGoal)}</div></section>` : ""}
+
+          <section class="card">
+            <h2>Findings</h2>
+            <table class="table" role="table" aria-label="Findings">
               <thead><tr><th>#</th><th>Tooth</th><th>Note</th><th>Severity</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
-          </div>
-        </section>
+          </section>
 
-        <section class="section">
-          <h3>Tooth → Findings Map</h3>
-          <div style="overflow:auto;border:1px solid rgba(226,232,240,.06);border-radius:12px">
-            <table role="table" aria-label="Tooth map">
+          <section class="card">
+            <h2>Tooth → Findings Map</h2>
+            <table class="table" role="table" aria-label="Tooth map">
               <thead><tr><th>#</th><th>Tooth (FDI)</th><th>Findings</th></tr></thead>
               <tbody>${toothMap}</tbody>
             </table>
-          </div>
-        </section>
+          </section>
 
-        ${
-          data.rebuttal
-            ? `
-        <section class="section">
-          <h3>Rebuttal</h3>
-          ${data.rebuttal?.narrative ? `<p>${nl2br(data.rebuttal.narrative)}</p>` : ""}
-          ${updatesList ? `<ol class="updates">${updatesList}</ol>` : `<p class="muted">No updates provided.</p>`}
           ${
-            alignmentTable
-              ? `<div style="margin-top:12px;border:1px solid rgba(226,232,240,.06);border-radius:12px;overflow:auto">
-                  <table role="table" aria-label="Feedback addressed">
-                    <thead><tr><th>#</th><th>Feedback</th><th>Decision</th><th>Reason</th><th>Updates</th></thead>
-                    <tbody>${alignmentTable}</tbody>
-                  </table>
-                </div>`
+            data.rebuttal
+              ? `
+          <section class="card">
+            <h2>Rebuttal</h2>
+            ${data.rebuttal?.narrative ? `<p>${nl2br(data.rebuttal.narrative)}</p>` : ""}
+            ${updatesList ? `<ol class="legend">${updatesList}</ol>` : `<p class="muted">No updates provided.</p>`}
+            ${
+              alignmentTable
+                ? `<div style="margin-top:12px">
+                    <table class="table" role="table" aria-label="Feedback addressed">
+                        <thead><tr><th>#</th><th>Feedback</th><th>Decision</th><th>Reason</th><th>Updates</th></tr></thead>
+                        <tbody>${alignmentTable}</tbody>
+                    </table>
+                  </div>`
+                : ""
+            }
+          </section>
+          `
               : ""
           }
-        </section>
-        `
-            : ""
-        }
 
-        <section class="section">
-          <h3>Images</h3>
-          <div class="grid-img">${imagesGrid || `<div class="muted">No images</div>`}</div>
-        </section>
+          <section class="card">
+            <h2>Images</h2>
+            <div class="grid">${imagesGrid || `<div class="muted">No images</div>`}</div>
+          </section>
 
-        <footer class="footer">
-          <span class="brand">DentistFront</span>
-          <span>${escapeHtml(data.footerNote || "Confidential clinical document")}</span>
-        </footer>
+          <div class="card" style="display:flex;justify-content:space-between;align-items:center">
+            <span class="muted">Confidential clinical document</span>
+            <span class="badge">DentistFront</span>
+          </div>
       </section>
-    </main>
+      </main>
   </body>
-</html>
-`;
+  </html>
+  `;
 }
 
 export function buildReviewPacketHTMLCompare(data: ReviewCompareData) {
@@ -488,61 +618,61 @@ export function buildReviewPacketHTMLCompare(data: ReviewCompareData) {
     !diff.added.length && !diff.removed.length && !diff.modified.length
       ? `<p class="muted">No changes detected between Draft and Latest.</p>`
       : `
-      <ul style="margin:0;padding-left:18px">
-        ${
-          diff.added.length
-            ? `<li class="delta-add"><strong>Added:</strong> ${diff.added
-                .map((f) => `${escapeHtml(f.tooth)} — ${escapeHtml(f.note)} (${severityLabel(f.severity)})`)
-                .join("; ")}</li>`
-            : ""
-        }
-        ${
-          diff.removed.length
-            ? `<li class="delta-rem"><strong>Removed:</strong> ${diff.removed
-                .map((f) => `${escapeHtml(f.tooth)} — ${escapeHtml(f.note)} (${severityLabel(f.severity)})`)
-                .join("; ")}</li>`
-            : ""
-        }
-        ${
-          diff.modified.length
-            ? `<li class="delta-mod"><strong>Modified:</strong> ${diff.modified
-                .map(
-                  (m) =>
-                    `${escapeHtml(m.tooth)} — ${escapeHtml(m.from.note)} (${severityLabel(
-                      m.from.severity
-                    )}) → ${escapeHtml(m.to.note)} (${severityLabel(m.to.severity)})`
-                )
-                .join("; ")}</li>`
-            : ""
-        }
-      </ul>
-    `;
+        <ul class="legend">
+            ${
+              diff.added.length
+                ? `<li><strong>Added:</strong> ${diff.added
+                    .map((f) => `${escapeHtml(f.tooth)} — ${escapeHtml(f.note)} (${severityLabel(f.severity)})`)
+                    .join("; ")}</li>`
+                : ""
+            }
+            ${
+              diff.removed.length
+                ? `<li><strong>Removed:</strong> ${diff.removed
+                    .map((f) => `${escapeHtml(f.tooth)} — ${escapeHtml(f.note)} (${severityLabel(f.severity)})`)
+                    .join("; ")}</li>`
+                : ""
+            }
+            ${
+              diff.modified.length
+                ? `<li><strong>Modified:</strong> ${diff.modified
+                    .map(
+                      (m) =>
+                        `${escapeHtml(m.tooth)} — ${escapeHtml(m.from.note)} (${severityLabel(
+                          m.from.severity
+                        )}) → ${escapeHtml(m.to.note)} (${severityLabel(m.to.severity)})`
+                    )
+                    .join("; ")}</li>`
+                : ""
+            }
+        </ul>
+        `;
 
   const updatesList = (data.rebuttal?.updates || [])
     .map(
       (u, idx) => `
-      <li>
-        <div class="upd-head">
-          <span class="pill action-${u.action}">${u.action}</span>
-          <strong>${escapeHtml(u.topic || "Untitled")}</strong>
-          <span class="muted">#${idx + 1}</span>
-        </div>
-        ${u.text ? `<div class="upd-text">${nl2br(u.text)}</div>` : ""}
-        ${u.rationale ? `<div class="upd-rationale"><em>Reason:</em> ${nl2br(u.rationale)}</div>` : ""}
-      </li>`
+        <li>
+            <div class="upd-head">
+            <span class="badge">${u.action}</span>
+            <strong>${escapeHtml(u.topic || "Untitled")}</strong>
+            <span class="muted">#${idx + 1}</span>
+            </div>
+            ${u.text ? `<div class="upd-text">${nl2br(u.text)}</div>` : ""}
+            ${u.rationale ? `<div class="upd-rationale"><em>Reason:</em> ${nl2br(u.rationale)}</div>` : ""}
+        </li>`
     )
     .join("");
 
   const alignmentTable = (data.rebuttal?.feedbackAlignment || [])
     .map(
       (a) => `
-      <tr>
-        <td>${a.itemNumber || ""}</td>
-        <td>${nl2br(a.itemText || "")}</td>
-        <td>${escapeHtml(a.decision || "")}</td>
-        <td>${nl2br(a.reason || "")}</td>
-        <td>${Array.isArray(a.linkedUpdates) ? a.linkedUpdates.join(", ") : ""}</td>
-      </tr>`
+        <tr>
+            <td>${a.itemNumber || ""}</td>
+            <td>${nl2br(a.itemText || "")}</td>
+            <td>${escapeHtml(a.decision || "")}</td>
+            <td>${nl2br(a.reason || "")}</td>
+            <td>${Array.isArray(a.linkedUpdates) ? a.linkedUpdates.join(", ") : ""}</td>
+        </tr>`
     )
     .join("");
 
@@ -553,131 +683,116 @@ export function buildReviewPacketHTMLCompare(data: ReviewCompareData) {
   const perImagePages = (data.images || []).map((img, i) => imageFigure(img, i, true)).join("");
 
   return `
-<!DOCTYPE html>
-<html lang="en">
+  <!DOCTYPE html>
+  <html lang="en">
   <head>
-    <meta charSet="utf-8"/>
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <title>Case ${escapeHtml(data.caseId)}</title>
-    <style>${baseStyles()}</style>
+      <meta charSet="utf-8"/>
+      <meta name="viewport" content="width=device-width,initial-scale=1"/>
+      <title>Case ${escapeHtml(data.caseId)}</title>
+      <style>${baseStyles()}</style>
   </head>
   <body>
-    <main class="page">
+      <main class="page">
       <section class="card">
-        <header class="header">
-          <div class="chip">${data.versions.latest.isRebuttal ? "Rebuttal Packet" : "Review Packet"}</div>
-          <h1 class="title">Case ${escapeHtml(data.caseId)}</h1>
-          <div class="meta">
-            <span>Patient: <strong>${escapeHtml(data.patientName)}</strong></span>
-            ${data.doctorName ? `<span>Doctor: <strong>${escapeHtml(data.doctorName)}</strong></span>` : ""}
-            ${data.technicianName ? `<span>Technician: <strong>${escapeHtml(data.technicianName)}</strong></span>` : ""}
-            <span>Date: ${created}</span>
-          </div>
-        </header>
-
-        <section class="section">
-          <h3>Summary — Draft vs ${data.versions.latest.isRebuttal ? "Rebuttal" : "Latest"}</h3>
-          <div class="grid-2">
-            <div class="panel">
-              <h4>Draft v${data.versions.draft.version}</h4>
-              <p>${nl2br(data.versions.draft.summary || "—")}</p>
+          <div class="header">
+            <div>
+              <h1>${data.versions.latest.isRebuttal ? "Rebuttal Packet" : "Review Packet"}</h1>
+              <small>Case ${escapeHtml(data.caseId)}</small>
             </div>
-            <div class="panel">
-              <h4>${data.versions.latest.isRebuttal ? "Rebuttal" : "Latest"} v${data.versions.latest.version}</h4>
-              <p>${nl2br(data.versions.latest.summary || "—")}</p>
+            <div class="badges">
+              <span class="badge">${created}</span>
             </div>
           </div>
-        </section>
 
-        <section class="section">
-          <h3>What Changed</h3>
-          ${changesHtml}
-        </section>
+          <section class="card">
+            <h2>Summary — Draft vs ${data.versions.latest.isRebuttal ? "Rebuttal" : "Latest"}</h2>
+            <div class="grid grid-2">
+              <div>
+                <h3>Draft v${data.versions.draft.version}</h3>
+                <p>${nl2br(data.versions.draft.summary || "—")}</p>
+              </div>
+              <div>
+                <h3>${data.versions.latest.isRebuttal ? "Rebuttal" : "Latest"} v${data.versions.latest.version}</h3>
+                <p>${nl2br(data.versions.latest.summary || "—")}</p>
+              </div>
+            </div>
+          </section>
 
-        <section class="section">
-          <h3>Findings — Side by Side</h3>
-          <div class="grid-2">
-            <div class="panel">
-              <h4>Draft v${data.versions.draft.version}</h4>
-              <div style="overflow:auto;border:1px solid rgba(226,232,240,.06);border-radius:12px">
-                <table role="table" aria-label="Draft findings">
+          <section class="card">
+            <h2>What Changed</h2>
+            ${changesHtml}
+          </section>
+
+          <section class="card">
+            <h2>Findings — Side by Side</h2>
+            <div class="grid grid-2">
+              <div>
+                <h3>Draft v${data.versions.draft.version}</h3>
+                <table class="table" role="table" aria-label="Draft findings">
                   <thead><tr><th>#</th><th>Tooth</th><th>Note</th><th>Severity</th></tr></thead>
                   <tbody>${draftRows}</tbody>
                 </table>
               </div>
-            </div>
-            <div class="panel">
-              <h4>${data.versions.latest.isRebuttal ? "Rebuttal" : "Latest"} v${data.versions.latest.version}</h4>
-              <div style="overflow:auto;border:1px solid rgba(226,232,240,.06);border-radius:12px">
-                <table role="table" aria-label="Latest findings">
+              <div>
+                <h3>${data.versions.latest.isRebuttal ? "Rebuttal" : "Latest"} v${data.versions.latest.version}</h3>
+                <table class="table" role="table" aria-label="Latest findings">
                   <thead><tr><th>#</th><th>Tooth</th><th>Note</th><th>Severity</th></tr></thead>
                   <tbody>${latestRows}</tbody>
                 </table>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section class="section">
-          <h3>Tooth → Findings Map (Latest)</h3>
-          <div style="overflow:auto;border:1px solid rgba(226,232,240,.06);border-radius:12px">
-            <table role="table" aria-label="Tooth map latest">
+          <section class="card">
+            <h2>Tooth → Findings Map (Latest)</h2>
+            <table class="table" role="table" aria-label="Tooth map latest">
               <thead><tr><th>#</th><th>Tooth (FDI)</th><th>Findings</th></tr></thead>
               <tbody>${toothMapLatest}</tbody>
             </table>
-          </div>
-        </section>
+          </section>
 
-        ${
-          data.rebuttal
-            ? `
-        <section class="section">
-          <h3>Rebuttal</h3>
-          ${data.rebuttal?.narrative ? `<p>${nl2br(data.rebuttal.narrative)}</p>` : ""}
-          ${updatesList ? `<ol class="updates">${updatesList}</ol>` : `<p class="muted">No updates provided.</p>`}
-        </section>
-
-        <section class="section">
-          <h3>Feedback Addressed</h3>
           ${
-            alignmentTable
-              ? `<div style="border:1px solid rgba(226,232,240,.06);border-radius:12px;overflow:auto">
-                  <table role="table" aria-label="Feedback alignment">
-                    <thead>
-                      <tr><th>#</th><th>Feedback</th><th>Decision</th><th>Reason</th><th>Updates</th></tr>
-                    </thead>
-                    <tbody>${alignmentTable}</tbody>
-                  </table>
-                </div>`
-              : `<p class="muted">No explicit clinician feedback was provided.</p>`
+            data.rebuttal
+              ? `
+          <section class="card">
+            <h2>Rebuttal</h2>
+            ${data.rebuttal?.narrative ? `<p>${nl2br(data.rebuttal.narrative)}</p>` : ""}
+            ${updatesList ? `<ol class="legend">${updatesList}</ol>` : `<p class="muted">No updates provided.</p>`}
+          </section>
+
+          <section class="card">
+            <h2>Feedback Addressed</h2>
+            ${
+              alignmentTable
+                ? `<div>
+                    <table class="table" role="table" aria-label="Feedback alignment">
+                        <thead>
+                        <tr><th>#</th><th>Feedback</th><th>Decision</th><th>Reason</th><th>Updates</th></tr>
+                        </thead>
+                        <tbody>${alignmentTable}</tbody>
+                    </table>
+                  </div>`
+                : `<p class="muted">No explicit clinician feedback was provided.</p>`
+            }
+          </section>
+          `
+              : ""
           }
-        </section>
-        `
-            : ""
-        }
 
-        <section class="section">
-          <h3>Images (Overview)</h3>
-          <div class="grid-img">${imagesGrid || `<div class="muted">No images</div>`}</div>
-        </section>
+          <section class="card">
+            <h2>Images (Overview)</h2>
+            <div class="grid">${imagesGrid || `<div class="muted">No images</div>`}</div>
+          </section>
 
-        ${
-          perImagePages
-            ? `
-        <section class="section">
-          <h3>Per-Image Pages</h3>
-          ${perImagePages}
-        </section>`
-            : ""
-        }
+          ${perImagePages ? `<section class="card"><h2>Per-Image Pages</h2>${perImagePages}</section>` : ""}
 
-        <footer class="footer">
-          <span class="brand">DentistFront</span>
-          <span>${escapeHtml(data.footerNote || "Confidential clinical document")}</span>
-        </footer>
+          <div class="card" style="display:flex;justify-content:space-between;align-items:center">
+            <span class="muted">Confidential clinical document</span>
+            <span class="badge">DentistFront</span>
+          </div>
       </section>
-    </main>
+      </main>
   </body>
-</html>
-`;
+  </html>
+  `;
 }

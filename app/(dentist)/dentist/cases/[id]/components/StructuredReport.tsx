@@ -1,7 +1,7 @@
-// app/dentist/cases/[id]/components/StructuredReport.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { getSupabaseBrowser } from "../../../../../../lib/supabaseBrowser";
 
 type Severity = "low" | "medium" | "high";
 type ToothFinding = {
@@ -14,10 +14,19 @@ type ToothFinding = {
 };
 type ImageItem = { id: string; url?: string; path?: string; caption?: string; index?: number };
 
+type TreatmentGoalObj = {
+  summary?: string;
+  goals?: string[];
+  duration_months?: number | null;
+  notes?: string;
+} | null;
+
 type Props = {
   payload?: any;
   images?: ImageItem[];
   className?: string;
+  caseId?: string;
+  onSaved?: () => void | Promise<void>;
 };
 
 function fmtNum(n: unknown, unit: string) {
@@ -43,31 +52,12 @@ function sevBadge(s?: string | null) {
   const sev = normSev(s);
   const styles =
     sev === "high"
-      ? {
-          bg: "color-mix(in oklab, var(--color-danger) 18%, transparent)",
-          br: "color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))",
-          fg: "#FECACA",
-          label: "High",
-        }
+      ? { bg: "color-mix(in oklab, var(--color-danger) 18%, transparent)", br: "color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))", fg: "#FECACA", label: "High" }
       : sev === "medium"
-      ? {
-          bg: "color-mix(in oklab, var(--color-warning) 18%, transparent)",
-          br: "color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))",
-          fg: "#FFEFC7",
-          label: "Moderate",
-        }
-      : {
-          bg: "color-mix(in oklab, var(--color-success) 18%, transparent)",
-          br: "color-mix(in oklab, var(--color-success) 55%, var(--border-alpha))",
-          fg: "#DCFCE7",
-          label: "Low",
-        };
+      ? { bg: "color-mix(in oklab, var(--color-warning) 18%, transparent)", br: "color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))", fg: "#FFEFC7", label: "Moderate" }
+      : { bg: "color-mix(in oklab, var(--color-success) 18%, transparent)", br: "color-mix(in oklab, var(--color-success) 55%, var(--border-alpha))", fg: "#DCFCE7", label: "Low" };
   return (
-    <span
-      className="badge"
-      style={{ background: styles.bg, borderColor: styles.br, color: styles.fg }}
-      aria-label={`Severity ${styles.label}`}
-    >
+    <span className="badge" style={{ background: styles.bg, borderColor: styles.br, color: styles.fg }} aria-label={`Severity ${styles.label}`}>
       {styles.label}
     </span>
   );
@@ -80,8 +70,25 @@ function normConf(val?: number | null): number {
   if (n <= 10000) return (n / 100) / 100;
   return Math.min(1, Math.max(0, n / 100));
 }
+function coerceFinalGoal(val: any): string {
+  if (typeof val === "string") return val.trim();
+  if (val && typeof val === "object") {
+    const parts: string[] = [];
+    if (typeof val.summary === "string" && val.summary.trim()) parts.push(val.summary.trim());
+    if (Array.isArray(val.goals) && val.goals.length) parts.push(val.goals.map((g: any) => `• ${String(g)}`).join(" "));
+    if (Number.isFinite(val.duration_months)) parts.push(`Estimated duration: ${val.duration_months} months`);
+    if (typeof val.notes === "string" && val.notes.trim()) parts.push(val.notes.trim());
+    return parts.join(" ").trim();
+  }
+  return "";
+}
+function toNumberOrUndefined(v: string): number | undefined {
+  if (!v.trim()) return undefined;
+  const n = Number(v.replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : undefined;
+}
 
-export default function StructuredReport({ payload, images = [], className = "" }: Props) {
+export default function StructuredReport({ payload, images = [], className = "", caseId, onSaved }: Props) {
   const summary: string =
     typeof payload?.summary === "string" && payload.summary.trim()
       ? payload.summary
@@ -93,8 +100,34 @@ export default function StructuredReport({ payload, images = [], className = "" 
   const occlusion = payload?.occlusion || {};
   const hygiene = payload?.hygiene || {};
   const recommendations: string[] = Array.isArray(payload?.recommendations) ? payload.recommendations : [];
-  const treatmentGoal: string =
-    typeof payload?.treatment_goal_final === "string" ? payload.treatment_goal_final : "";
+  const tgfRaw: any = payload?.treatment_goal_final ?? payload?.final_treatment_goal ?? payload?.treatment_goal;
+  const initialTgView = coerceFinalGoal(tgfRaw);
+
+  const [editMode, setEditMode] = useState(false);
+  const [tgSummary, setTgSummary] = useState<string>(typeof tgfRaw === "string" ? tgfRaw : String(tgfRaw?.summary ?? ""));
+  const [tgGoals, setTgGoals] = useState<string>(Array.isArray(tgfRaw?.goals) ? tgfRaw.goals.join("\n") : "");
+  const [tgDuration, setTgDuration] = useState<string>(tgfRaw?.duration_months == null ? "" : String(tgfRaw.duration_months));
+  const [tgNotes, setTgNotes] = useState<string>(String(tgfRaw?.notes ?? ""));
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<{ kind: "ok" | "error"; msg: string } | null>(null);
+  const [viewOverride, setViewOverride] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editMode) {
+      setTgSummary(typeof tgfRaw === "string" ? tgfRaw : String(tgfRaw?.summary ?? ""));
+      setTgGoals(Array.isArray(tgfRaw?.goals) ? tgfRaw.goals.join("\n") : "");
+      setTgDuration(tgfRaw?.duration_months == null ? "" : String(tgfRaw.duration_months));
+      setTgNotes(String(tgfRaw?.notes ?? ""));
+    }
+  }, [payload?.treatment_goal_final, editMode]);
+
+  useEffect(() => {
+    if (!status) return;
+    const t = setTimeout(() => setStatus(null), 1800);
+    return () => clearTimeout(t);
+  }, [status]);
+
+  const treatmentGoalView = viewOverride ?? initialTgView;
 
   const findings: ToothFinding[] = useMemo(() => {
     const arr = Array.isArray(payload?.findings) ? (payload.findings as ToothFinding[]) : [];
@@ -208,6 +241,53 @@ export default function StructuredReport({ payload, images = [], className = "" 
     });
   }, [findings, manifestById]);
 
+  const saveFinalGoal = async () => {
+    if (!caseId || saving) return;
+    setSaving(true);
+    setStatus(null);
+    try {
+      const supabase = getSupabaseBrowser();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Unauthorized");
+      const goals = tgGoals
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const patch: Record<string, any> = {
+        treatment_goal_final: {
+          summary: tgSummary || undefined,
+          goals,
+          duration_months: tgDuration.trim() === "" ? null : toNumberOrUndefined(tgDuration),
+          notes: tgNotes || undefined,
+        },
+      };
+      if (
+        patch.treatment_goal_final &&
+        Object.values(patch.treatment_goal_final).every((v) => v === undefined || (Array.isArray(v) && v.length === 0))
+      ) {
+        delete patch.treatment_goal_final;
+      }
+      const res = await fetch("/api/reports/template/patch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ caseId, patch }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || "Failed to save");
+      setViewOverride(coerceFinalGoal(patch.treatment_goal_final));
+      setEditMode(false);
+      setStatus({ kind: "ok", msg: "Saved" });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("report:templateUpserted", { detail: { caseId, patch } }));
+      }
+      await onSaved?.();
+    } catch (e: any) {
+      setStatus({ kind: "error", msg: e?.message || "Save failed" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <section className={`card-lg ${className}`}>
       <div className="grid gap-4 md:grid-cols-2">
@@ -217,8 +297,72 @@ export default function StructuredReport({ payload, images = [], className = "" 
         </div>
 
         <div className="rounded-2xl border p-4">
-          <h3 className="mb-2 text-sm font-semibold">Treatment Goal</h3>
-          <p className="text-sm">{treatmentGoal || "—"}</p>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Final treatment goal</h3>
+            {caseId && !editMode && (
+              <button className="btn btn-ghost btn-xs" onClick={() => setEditMode(true)}>Edit</button>
+            )}
+          </div>
+
+          {!editMode && (
+            <p className="text-sm">{treatmentGoalView || "—"}</p>
+          )}
+
+          {editMode && (
+            <div className="space-y-2">
+              <input
+                className="input"
+                placeholder="Summary"
+                value={tgSummary}
+                onChange={(e) => setTgSummary(e.target.value)}
+              />
+              <input
+                className="input"
+                placeholder="Duration (months)"
+                value={tgDuration}
+                onChange={(e) => setTgDuration(e.target.value)}
+              />
+              <textarea
+                className="textarea"
+                rows={3}
+                placeholder="Goals (one per line)"
+                value={tgGoals}
+                onChange={(e) => setTgGoals(e.target.value)}
+              />
+              <textarea
+                className="textarea"
+                rows={3}
+                placeholder="Notes"
+                value={tgNotes}
+                onChange={(e) => setTgNotes(e.target.value)}
+              />
+              {status && (
+                <div
+                  className="rounded-xl border px-3 py-2 text-sm"
+                  style={{
+                    background:
+                      status.kind === "ok"
+                        ? "color-mix(in oklab, var(--color-success) 14%, transparent)"
+                        : "color-mix(in oklab, var(--color-danger) 14%, transparent)",
+                    borderColor:
+                      status.kind === "ok"
+                        ? "color-mix(in oklab, var(--color-success) 55%, var(--border-alpha))"
+                        : "color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))",
+                  }}
+                >
+                  {status.msg}
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-2">
+                <button className="btn btn-ghost" type="button" onClick={() => setEditMode(false)} disabled={saving}>
+                  Cancel
+                </button>
+                <button className="btn btn-primary" type="button" onClick={saveFinalGoal} disabled={saving} aria-busy={saving}>
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -329,10 +473,7 @@ export default function StructuredReport({ payload, images = [], className = "" 
                                       <span
                                         key={k}
                                         className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
-                                        style={{
-                                          background: "rgba(255,255,255,.03)",
-                                          borderColor: "var(--border-alpha)",
-                                        }}
+                                        style={{ background: "rgba(255,255,255,.03)", borderColor: "var(--border-alpha)" }}
                                         title={f}
                                       >
                                         {f}
@@ -348,8 +489,7 @@ export default function StructuredReport({ payload, images = [], className = "" 
                                         className="h-2 rounded-full"
                                         style={{
                                           width: `${Math.min(100, Math.max(0, confPct))}%`,
-                                          background:
-                                            "color-mix(in oklab, var(--color-primary) 70%, transparent)",
+                                          background: "color-mix(in oklab, var(--color-primary) 70%, transparent)",
                                         }}
                                         aria-valuenow={confPct}
                                         aria-valuemin={0}

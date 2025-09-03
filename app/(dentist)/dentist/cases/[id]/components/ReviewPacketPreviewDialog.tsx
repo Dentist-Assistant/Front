@@ -115,25 +115,19 @@ export default function ReviewPacketPreviewDialog({
   }, [open, version, selectedIds.join("|")]);
 
   useEffect(() => {
-    const handleDraft = (e: Event) => {
+    const bump = (e: Event) => {
       const id = (e as CustomEvent).detail?.caseId as string | undefined;
       if (!id || id === caseId) setRefreshTick((t) => t + 1);
     };
-    const handleRebuttal = (e: Event) => {
-      const id = (e as CustomEvent).detail?.caseId as string | undefined;
-      if (!id || id === caseId) setRefreshTick((t) => t + 1);
-    };
-    const handleUpsert = (e: Event) => {
-      const id = (e as CustomEvent).detail?.caseId as string | undefined;
-      if (!id || id === caseId) setRefreshTick((t) => t + 1);
-    };
-    window.addEventListener("ai:draftSaved", handleDraft as EventListener);
-    window.addEventListener("ai:rebuttalSaved", handleRebuttal as EventListener);
-    window.addEventListener("report:templateUpserted", handleUpsert as EventListener);
+    window.addEventListener("ai:draftSaved", bump as EventListener);
+    window.addEventListener("ai:rebuttalSaved", bump as EventListener);
+    window.addEventListener("ai:reloadAnnotatedImages", bump as EventListener);
+    window.addEventListener("report:templateUpserted", bump as EventListener);
     return () => {
-      window.removeEventListener("ai:draftSaved", handleDraft as EventListener);
-      window.removeEventListener("ai:rebuttalSaved", handleRebuttal as EventListener);
-      window.removeEventListener("report:templateUpserted", handleUpsert as EventListener);
+      window.removeEventListener("ai:draftSaved", bump as EventListener);
+      window.removeEventListener("ai:rebuttalSaved", bump as EventListener);
+      window.removeEventListener("ai:reloadAnnotatedImages", bump as EventListener);
+      window.removeEventListener("report:templateUpserted", bump as EventListener);
     };
   }, [caseId]);
 
@@ -284,9 +278,9 @@ export default function ReviewPacketPreviewDialog({
                 </div>
 
                 <ul className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-[48vh] overflow-auto pr-1">
-                  {displayImages.map((it) => {
+                  {images.map((it) => {
                     const checked = selectedIds.includes(it.id);
-                    const url = it.url || "";
+                    const url = (it.url || (it.path ? resolvedUrls[it.path] : null)) || "";
                     return (
                       <li
                         key={it.id}
@@ -378,7 +372,7 @@ export default function ReviewPacketPreviewDialog({
                     </div>
                     <iframe
                       key={previewUrl}
-                      src={`${previewUrl}${PDF_VIEW_PARAMS}`}
+                      src={`${previewUrl}#zoom=page-width`}
                       title="Review Packet PDF Preview"
                       className="block w-full h-[min(82vh,1200px)] rounded-b-xl"
                       loading="lazy"
