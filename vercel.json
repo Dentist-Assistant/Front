@@ -1,8 +1,9 @@
 {
     "functions": {
       "app/api/reports/pdf/route.ts": {
-        "includeFiles": "node_modules/{@sparticuz/chromium,puppeteer-core}/**"
+        "includeFiles": "node_modules/@sparticuz/chromium/**"
       }
     }
   }
+  
   

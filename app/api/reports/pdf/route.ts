@@ -13,7 +13,7 @@ import chromium from "@sparticuz/chromium";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
+export const maxDuration = 60;
 
 const IMAGE_BUCKET = process.env.IMAGE_BUCKET || "cases";
 const SIGNED_URL_TTL = Number(process.env.SIGNED_URL_TTL || "600");
@@ -648,6 +648,12 @@ export async function POST(req: Request) {
 
     const { launch } = await import("puppeteer-core");
     let executablePath = await chromium.executablePath(process.env.LAMBDA_TASK_ROOT || "/var/task");
+    if (process.env.VERCEL) {
+      try {
+        const alt = await chromium.executablePath();
+        if (alt) executablePath = alt;
+      } catch {}
+    }
 
     if (!executablePath) {
       if (process.platform === "darwin") {
@@ -662,7 +668,8 @@ export async function POST(req: Request) {
     browser = await launch({
       args: chromium.args,
       executablePath,
-      headless: true,
+      headless: (chromium as any).headless ?? true,
+      defaultViewport: (chromium as any).defaultViewport,
     });
 
     const page = await browser.newPage();
