@@ -11,11 +11,9 @@ import chromium from "@sparticuz/chromium";
   path.join(process.cwd(), "node_modules", "@sparticuz", "chromium", "bin")
 );
 
-// ensure tmp/cache dirs on Vercel/Lambda
 process.env.HOME = process.env.HOME || "/tmp";
 process.env.TMPDIR = process.env.TMPDIR || "/tmp";
 
-// harden sparticuz runtime
 (chromium as any).setHeadlessMode?.(true);
 (chromium as any).setGraphicsMode?.(false);
 
@@ -335,6 +333,12 @@ function coerceFinalGoal(val: any): string {
   return "";
 }
 
+const g: any = globalThis as any;
+if (!g.__chromePathPromise) {
+  g.__chromePathPromise = chromium.executablePath();
+}
+const getChromePath = () => g.__chromePathPromise as Promise<string>;
+
 export async function POST(req: Request) {
   let browser: Browser | null = null;
   try {
@@ -538,130 +542,259 @@ export async function POST(req: Request) {
       </div>
     `;
 
-    const sum = sectionTemplate(
-      "Summary",
-      `<p>${esc(latestSummary || draftSummary || "No summary")}</p>`
-    );
+    const sum = `<section class="card"><h2>Summary</h2><p>${esc(latestSummary || draftSummary || "No summary")}</p></section>`;
 
-    const tmplMeasurements = tableTemplate(
-      ["Metric", "Value"],
-      [
+    const tmplMeasurements = (function () {
+      const rows = [
         ["Overjet (mm)", esc(latestMeasurements?.overjet_mm ?? "—")],
         ["Overbite (%)", esc(latestMeasurements?.overbite_percent ?? "—")],
         ["Midline deviation (mm)", esc(latestMeasurements?.midline_deviation_mm ?? "—")],
         ["Crowding upper (mm)", esc(latestMeasurements?.crowding_upper_mm ?? "—")],
         ["Crowding lower (mm)", esc(latestMeasurements?.crowding_lower_mm ?? "—")],
-      ]
-    );
+      ];
+      const th = ["Metric", "Value"].map((h) => `<th>${esc(h)}</th>`).join("");
+      const tr = rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
+      return `<section class="card"><h2>Measurements</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+    })();
 
-    const tmplOcclusion = tableTemplate(
-      ["Aspect", "Value"],
-      [
+    const tmplOcclusion = (function () {
+      const rows = [
         ["Class right", esc(latestOcclusion?.class_right ?? "—")],
         ["Class left", esc(latestOcclusion?.class_left ?? "—")],
         ["Open bite", esc(String(latestOcclusion?.open_bite ?? "—"))],
         ["Crossbite", esc(String(latestOcclusion?.crossbite ?? "—"))],
-      ]
-    );
+      ];
+      const th = ["Aspect", "Value"].map((h) => `<th>${esc(h)}</th>`).join("");
+      const tr = rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
+      return `<section class="card"><h2>Occlusion</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+    })();
 
-    const tmplHygiene = tableTemplate(
-      ["Aspect", "Value"],
-      [
+    const tmplHygiene = (function () {
+      const rows = [
         ["Plaque", esc(latestHygiene?.plaque ?? "—")],
         ["Calculus", esc(latestHygiene?.calculus ?? "—")],
         ["Gingival inflammation", esc(latestHygiene?.gingival_inflammation ?? "—")],
-      ]
-    );
+      ];
+      const th = ["Aspect", "Value"].map((h) => `<th>${esc(h)}</th>`).join("");
+      const tr = rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
+      return `<section class="card"><h2>Hygiene</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+    })();
 
-    const tmplRecs =
-      Array.isArray(latestRecs) && latestRecs.length > 0
-        ? `<ul>${latestRecs.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>`
-        : `<p>—</p>`;
+    const tmplRecs = (function () {
+      const content =
+        Array.isArray(latestRecs) && latestRecs.length > 0
+          ? `<ul>${latestRecs.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>`
+          : `<p>—</p>`;
+      return `<section class="card"><h2>Recommendations</h2>${content}</section>`;
+    })();
 
-    const templateSection =
-      sectionTemplate("Measurements", tmplMeasurements) +
-      sectionTemplate("Occlusion", tmplOcclusion) +
-      sectionTemplate("Hygiene", tmplHygiene) +
-      sectionTemplate("Recommendations", tmplRecs);
+    const latestTable = (function () {
+      const th = ["FDI", "Finding", "Severity", "Confidence", "Image"].map((h) => `<th>${esc(h)}</th>`).join("");
+      const tr = latestFindings
+        .map((f) => [
+          esc(f.tooth_fdi),
+          esc(f.text || "—"),
+          sevBadge(f.severity),
+          pct(f.confidence),
+          esc(paths[f.image_index] || f.image_id || "—"),
+        ])
+        .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+        .join("");
+      return `<section class="card"><h2>Findings (Latest)</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+    })();
 
-    const latestTable = tableTemplate(
-      ["FDI", "Finding", "Severity", "Confidence", "Image"],
-      latestFindings.map((f) => [
-        esc(f.tooth_fdi),
-        esc(f.text || "—"),
-        sevBadge(f.severity),
-        pct(f.confidence),
-        esc(paths[f.image_index] || f.image_id || "—"),
-      ])
-    );
+    const draftTable = (function () {
+      if (!(draft?.version !== latest?.version || draftFindings.length !== latestFindings.length)) return "";
+      const th = ["FDI", "Finding", "Severity", "Confidence", "Image"].map((h) => `<th>${esc(h)}</th>`).join("");
+      const tr = draftFindings
+        .map((f) => [
+          esc(f.tooth_fdi),
+          esc(f.text || "—"),
+          sevBadge(f.severity),
+          pct(f.confidence),
+          esc(paths[f.image_index] || f.image_id || "—"),
+        ])
+        .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+        .join("");
+      return `<section class="card"><h2>Findings (Draft)</h2><table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></section>`;
+    })();
 
-    const draftTable =
-      draft?.version !== latest?.version || draftFindings.length !== latestFindings.length
-        ? tableTemplate(
-            ["FDI", "Finding", "Severity", "Confidence", "Image"],
-            draftFindings.map((f) => [
-              esc(f.tooth_fdi),
-              esc(f.text || "—"),
-              sevBadge(f.severity),
-              pct(f.confidence),
-              esc(paths[f.image_index] || f.image_id || "—"),
-            ])
-          )
+    const rebuttalSection =
+      latest?.payload?.rebuttal
+        ? (function () {
+            const u = latest.payload.rebuttal.updates || [];
+            const table =
+              Array.isArray(u) && u.length
+                ? (function () {
+                    const th = ["Topic", "Action", "Text", "Rationale"].map((h) => `<th>${esc(h)}</th>`).join("");
+                    const tr = u
+                      .map((x: any) => [esc(x.topic || ""), esc(x.action || ""), esc(x.text || ""), esc(x.rationale || "")])
+                      .map((r: string[]) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+                      .join("");
+                    return `<table class="table"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
+                  })()
+                : "";
+            return `<section class="card"><h2>Rebuttal</h2><p>${esc(latest.payload.rebuttal.narrative || "")}</p>${table}</section>`;
+          })()
         : "";
 
-    const rebuttalSection = latest?.payload?.rebuttal
-      ? sectionTemplate(
-          "Rebuttal",
-          `<p>${esc(latest.payload.rebuttal.narrative || "")}</p>` +
-            (Array.isArray(latest.payload.rebuttal.updates) && latest.payload.rebuttal.updates.length
-              ? tableTemplate(
-                  ["Topic", "Action", "Text", "Rationale"],
-                  latest.payload.rebuttal.updates.map((u: any) => [
-                    esc(u.topic || ""),
-                    esc(u.action || ""),
-                    esc(u.text || ""),
-                    esc(u.rationale || ""),
-                  ])
-                )
-              : "")
-        )
-      : "";
-
-    const finalGoalBox = finalGoal
-      ? `<section class="card"><h2>Final treatment goal</h2><div class="final-goal">${esc(finalGoal)}</div></section>`
-      : "";
-
-    const latestFindingsSection = sectionTemplate("Findings (Latest)", latestTable);
-    const draftFindingsSection = draftTable ? sectionTemplate("Findings (Draft)", draftTable) : "";
+    const finalGoalBox = (function () {
+      const tgfRaw =
+        latestPayload?.treatment_goal_final ?? latestPayload?.final_treatment_goal ?? latestPayload?.treatment_goal;
+      const finalGoal = coerceFinalGoal(tgfRaw);
+      return finalGoal ? `<section class="card"><h2>Final treatment goal</h2><div class="final-goal">${esc(finalGoal)}</div></section>` : "";
+    })();
 
     const imagePages: string[] = [];
+    const makeImgPage = (url: string, width: number, findings: any[]) => {
+      const W = 1000;
+      const H = 750;
+      const shapes: string[] = [];
+      const labels: string[] = [];
+      let n = 1;
+      const labelSVG = (idx: number, x: number, y: number) => {
+        const r = 10;
+        return `<g class="lbl" transform="translate(${x},${y})"><circle r="${r}" class="lbl-bg"/><text dominant-baseline="middle" text-anchor="middle" class="lbl-t">${idx}</text></g>`;
+      };
+      const toSev = (s?: string) => {
+        const v = String(s || "").toLowerCase();
+        if (v.includes("high") || v.includes("severe")) return "high";
+        if (v.includes("moder")) return "moderate";
+        if (v.includes("med")) return "moderate";
+        return "low";
+      };
+      for (const f of findings) {
+        for (const o of f.overlays) {
+          const idx = n++;
+          if (o.type === "circle") {
+            const cx = Math.round(o.center[0] * W);
+            const cy = Math.round(o.center[1] * H);
+            const r = Math.max(2, Math.round(o.radius * Math.min(W, H)));
+            shapes.push(`<circle cx="${cx}" cy="${cy}" r="${r}" class="ov stroke-${toSev(f.severity)} fill-none"/>`);
+            labels.push(labelSVG(idx, cx, cy));
+            continue;
+          }
+          if (o.type === "bbox") {
+            const x = Math.round(o.bbox[0] * W);
+            const y = Math.round(o.bbox[1] * H);
+            const w = Math.max(2, Math.round(o.bbox[2] * W));
+            const h = Math.max(2, Math.round(o.bbox[3] * H));
+            shapes.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" class="ov stroke-${toSev(f.severity)} fill-none"/>`);
+            labels.push(labelSVG(idx, x, y));
+            continue;
+          }
+          if (o.type === "line") {
+            const [p1, p2] = o.points;
+            const x1 = Math.round(p1[0] * W);
+            const y1 = Math.round(p1[1] * H);
+            const x2 = Math.round(p2[0] * W);
+            const y2 = Math.round(p2[1] * H);
+            shapes.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="ov stroke-${toSev(f.severity)}"/>`);
+            labels.push(labelSVG(idx, x1, y1));
+            continue;
+          }
+          if (o.type === "polyline" || o.type === "polygon") {
+            const pts = o.points.map(([x, y]: any) => `${Math.round(x * W)},${Math.round(y * H)}`).join(" ");
+            if (o.type === "polyline") {
+              shapes.push(`<polyline points="${pts}" class="ov stroke-${toSev(f.severity)} fill-none"/>`);
+            } else {
+              shapes.push(`<polygon points="${pts}" class="ov stroke-${toSev(f.severity)} fill-translucent"/>`);
+            }
+            const [ax, ay] = (o as any).points?.[0] ?? [0.5, 0.5];
+            labels.push(labelSVG(idx, Math.round(ax * W), Math.round(ay * H)));
+            continue;
+          }
+        }
+      }
+      const svg = `
+        <div class="img-wrap" style="max-width:${width}px">
+          <img src="${url}" alt="Image" class="img"/>
+          <svg class="ov-wrap" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+            ${shapes.join("\n")}
+            ${labels.join("\n")}
+          </svg>
+        </div>
+      `;
+      return `<div class="page image-page">${svg}</div>`;
+    };
+
     for (let i = 0; i < signed.length; i++) {
       const list = (byImageLatest.get(i) || []).map((f, k) => ({
         index: k + 1,
         tooth_fdi: f.tooth_fdi,
         text: f.text,
         severity: f.severity,
-        overlays: f.overlays || [],
+        overlays: (f as any).overlays || [],
       }));
-      const page = svgForImage(signed[i], 980, list);
+      const page = makeImgPage(signed[i], 980, list);
       const headerPage = `<div class="page card"><h2>Image ${i + 1} / ${signed.length}</h2><small>${esc(paths[i])}</small></div>`;
       imagePages.push(headerPage + page);
     }
 
     const doc = htmlDocument(
-      header + sum + templateSection + latestFindingsSection + draftFindingsSection + rebuttalSection + finalGoalBox + imagePages.join(""),
+      [
+        `
+      <div class="header">
+        <div>
+          <h1>Review Packet</h1>
+          <small>Case ${esc(caseId)}</small>
+        </div>
+        <div class="badges">
+          <span class="badge">v${draft?.version ?? latestVersion} draft</span>
+          <span class="badge">${latest?.payload?.rebuttal ? "rebuttal" : "latest"} v${latestVersion}</span>
+          <span class="badge">${new Date().toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="kv">
+          <div>Patient</div><div>${esc(caseRow?.title || "Patient")}</div>
+          <div>Overlay coordinates</div><div>${esc(overlayCoords || "normalized_0_1")}</div>
+          <div>Images used</div><div>${paths.length}</div>
+        </div>
+      </div>
+    `,
+        sum,
+        tmplMeasurements,
+        tmplOcclusion,
+        tmplHygiene,
+        tmplRecs,
+        latestTable,
+        draftTable,
+        rebuttalSection,
+        finalGoalBox,
+        imagePages.join(""),
+      ].join(""),
       `Case ${caseId} packet`,
       css
     );
 
     const { launch } = await import("puppeteer-core");
 
-    async function launchWithRetry(executablePath: string, retries = 3): Promise<Browser> {
+    const tmpBase = "/tmp";
+    const runTmp = path.join(tmpBase, `chromium-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    try {
+      await fs.mkdir(runTmp, { recursive: true });
+      process.env.TMPDIR = runTmp;
+      process.env.PUPPETEER_CACHE_DIR = runTmp;
+    } catch {}
+
+    const executablePathResolved = await getChromePath();
+    try {
+      await fs.chmod(executablePathResolved, 0o755).catch(() => {});
+    } catch {}
+
+    async function launchWithRetry(executablePath: string, retries = 8): Promise<Browser> {
       let lastErr: any;
       for (let i = 0; i <= retries; i++) {
         try {
           return await launch({
-            args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+            args: [
+              ...chromium.args,
+              "--no-sandbox",
+              "--disable-setuid-sandbox",
+              "--disable-dev-shm-usage",
+              "--disable-gpu",
+            ],
             executablePath,
             headless: (chromium as any).headless ?? true,
             defaultViewport: (chromium as any).defaultViewport,
@@ -671,7 +804,8 @@ export async function POST(req: Request) {
           const msg = String(e?.message || "");
           const code = String((e as any)?.code || "");
           if (msg.includes("ETXTBSY") || code === "ETXTBSY" || msg.toLowerCase().includes("text file busy")) {
-            await new Promise((r) => setTimeout(r, 200 + i * 200));
+            const delay = Math.min(200 * Math.pow(2, i), 2000);
+            await new Promise((r) => setTimeout(r, delay));
             continue;
           }
           throw e;
@@ -680,14 +814,7 @@ export async function POST(req: Request) {
       throw lastErr;
     }
 
-    let executablePath = await chromium.executablePath(process.env.LAMBDA_TASK_ROOT || "/var/task");
-
-    if (process.env.VERCEL) {
-      try {
-        const alt = await chromium.executablePath();
-        if (alt) executablePath = alt;
-      } catch {}
-    }
+    let executablePath = executablePathResolved;
 
     if (!executablePath) {
       if (process.platform === "darwin") {
