@@ -150,7 +150,11 @@ async function loadCss() {
   const fallback = `
     :root { --text:#0b0c0e; --muted:#5a6472; --bg:#ffffff; --border:#e5e7eb; --accent:#2563eb; --danger:#dc2626; --ok:#16a34a; }
     *{box-sizing:border-box}
-    body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif; color:var(--text); background:#fff; margin:0; padding:24px}
+    body{
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
+      color:var(--text); background:#fff; margin:0; padding:24px;
+      -webkit-print-color-adjust:exact; print-color-adjust:exact;
+    }
     h1{font-size:22px;margin:0 0 8px}
     h2{font-size:16px;margin:0 0 10px}
     h3{font-size:14px;margin:0 0 8px}
@@ -170,7 +174,7 @@ async function loadCss() {
     .sev-high{color:#991b1b; border-color:#fecaca; background:#fef2f2}
     .header{display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:12px}
     .kv{display:grid; grid-template-columns:180px 1fr; gap:6px; font-size:12px}
-    .img-wrap{position:relative; width:100%; background:transparent; border-radius:12px; overflow:hidden; border:1px solid var(--border)}
+    .img-wrap{position:relative; width:100%; background:#fff; border-radius:12px; overflow:hidden; border:1px solid var(--border)}
     .img{display:block; width:100%; height:auto; object-fit:contain; background:transparent}
     .ov-wrap{position:absolute; inset:0; width:100%; height:100%}
     .ov{stroke-width:3; vector-effect:non-scaling-stroke}
@@ -188,7 +192,7 @@ async function loadCss() {
     .image-page .legend{break-inside:avoid}
     .hr{height:1px; background:var(--border); margin:10px 0}
     .final-goal{border:2px solid #111827; border-radius:12px; padding:12px; margin-top:8px; background:#f9fafb}
-    `;
+  `;
   try {
     const p = path.join(process.cwd(), "styles", "pdf.css");
     const css = await fs.readFile(p, "utf8");
@@ -201,14 +205,13 @@ async function loadCss() {
 function htmlDocument(body: string, title: string, css: string) {
   return `<!DOCTYPE html>
     <html>
-    <head>
-    <meta charset="utf-8"/>
-    <title>${esc(title)}</title>
-    <style>${css}</style>
-    </head>
-    <body>
-    ${body}
-    </body>
+      <head>
+        <meta charset="utf-8"/>
+        <meta name="color-scheme" content="light"/>
+        <title>${esc(title)}</title>
+        <style>${css}</style>
+      </head>
+      <body>${body}</body>
     </html>`;
 }
 
