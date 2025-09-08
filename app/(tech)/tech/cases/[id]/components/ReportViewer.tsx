@@ -6,94 +6,98 @@ import { getSupabaseBrowser } from "../../../../../../lib/supabaseBrowser";
 type Props = {
   caseId: string;
   version: number;
-  explicitPath?: string;
-  bucket?: string;
+  explicitPath?: string; 
+  bucket?: string;       
   height?: number;
 };
+
+const DEFAULT_BUCKET = process.env.NEXT_PUBLIC_REPORTS_BUCKET || "cases";
 
 export default function ReportViewer({
   caseId,
   version,
   explicitPath,
-  bucket = process.env.NEXT_PUBLIC_REPORTS_BUCKET || "reports",
+  bucket = DEFAULT_BUCKET,
   height = 560,
 }: Props) {
   const supabase = getSupabaseBrowser();
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    let objectUrl: string | null = null;
+
     (async () => {
       setLoading(true);
-      try {
-        const candidatePath =
-          explicitPath && !explicitPath.startsWith("http")
-            ? explicitPath
-            : explicitPath
-            ? null
-            : `reports/${caseId}/v${version}.pdf`;
+      setErr(null);
+      setUrl(null);
 
-        if (explicitPath && explicitPath.startsWith("http")) {
+      try {
+        if (explicitPath && /^https?:\/\//i.test(explicitPath)) {
           if (!cancelled) setUrl(explicitPath);
           return;
         }
 
-        if (!candidatePath) {
-          if (!cancelled) setUrl(null);
-          return;
+        const candidates: string[] = [];
+        if (explicitPath && !/^https?:\/\//i.test(explicitPath)) {
+          candidates.push(explicitPath);
         }
+        candidates.push(`pdf/${caseId}/v${version}.pdf`);
+        candidates.push(`${caseId}/v${version}.pdf`);
+        candidates.push(`pdf/${caseId}/latest.pdf`);
 
-        const pub = supabase.storage.from(bucket).getPublicUrl(candidatePath);
-        if (pub.data.publicUrl) {
-          const head = await fetch(pub.data.publicUrl, { method: "HEAD" });
-          if (head.ok) {
-            if (!cancelled) setUrl(pub.data.publicUrl);
-            return;
+        let found: Blob | null = null;
+        let usedPath = "";
+
+        for (const p of candidates) {
+          const { data, error } = await supabase.storage.from(bucket).download(p);
+          if (!error && data) {
+            found = data;
+            usedPath = p;
+            break;
           }
         }
 
-        const signed = await supabase.storage.from(bucket).createSignedUrl(candidatePath, 600);
-        if (signed.data?.signedUrl) {
-          if (!cancelled) setUrl(signed.data.signedUrl);
+        if (!found) {
+          setErr("Report not found in storage");
           return;
         }
 
-        if (!cancelled) setUrl(null);
+        objectUrl = URL.createObjectURL(found);
+        if (!cancelled) {
+          setUrl(objectUrl);
+        
+          console.debug("[ReportViewer] Using", { bucket, path: usedPath });
+        }
+      } catch (e: any) {
+        if (!cancelled) setErr(e?.message ?? "Failed to load report");
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [bucket, caseId, version, explicitPath, supabase]);
 
   if (loading) return <div className="skeleton w-full rounded-2xl" style={{ height }} />;
+
   if (!url)
     return (
       <section className="card-lg flex items-center justify-center text-center" style={{ height }}>
         <div>
           <p className="font-medium">No report PDF found</p>
-          <p className="muted text-sm">Ask the dentist to share the report or check the storage path.</p>
         </div>
       </section>
     );
 
   return (
     <div className="overflow-hidden rounded-2xl border" style={{ height }}>
-      <object data={url} type="application/pdf" className="h-full w-full">
-        <iframe
-          title="Report PDF"
-          src={`https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(url)}`}
-          className="h-full w-full"
-        />
-        <div className="p-4 text-sm">
-          <a className="link" href={url} target="_blank" rel="noreferrer">
-            Open report
-          </a>
-        </div>
-      </object>
+      <iframe title="Report PDF" src={url} className="h-full w-full" />
     </div>
   );
 }
