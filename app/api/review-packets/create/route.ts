@@ -1,10 +1,12 @@
-// app/api/review-packets/create/route.ts
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const IMAGE_BUCKET = process.env.IMAGE_BUCKET || "cases";
+const SIGNED_URL_TTL = Number(process.env.SIGNED_URL_TTL || "600");
 
 function admin() {
   const url = process.env.SUPABASE_URL!;
@@ -23,28 +25,20 @@ const Body = z.object({
 function lc(s: unknown) {
   return String(s || "").toLowerCase();
 }
-
 function isMissingColumn(msg: string) {
   const m = lc(msg);
-  return m.includes("does not exist") || m.includes("unknown column") || m.includes("column") && m.includes("not found");
+  return m.includes("does not exist") || m.includes("unknown column") || (m.includes("column") && m.includes("not found"));
 }
-
 function isMissingTable(msg: string) {
   const m = lc(msg);
-  return m.includes("relation") && m.includes("does not exist") || m.includes("table") && m.includes("not exist");
+  return (m.includes("relation") && m.includes("does not exist")) || (m.includes("table") && m.includes("not exist"));
 }
-
 function unique<T>(arr: T[]) {
   return Array.from(new Set(arr));
 }
-
 function annotatePath(p: string) {
   const parts = p.split("/");
-  if (parts.length >= 2 && parts[0] === "original") {
-    parts[0] = "annotated";
-    return parts.join("/");
-  }
-  if (parts.length >= 2 && parts[0] === "normalized") {
+  if (parts.length >= 2 && (parts[0] === "original" || parts[0] === "normalized")) {
     parts[0] = "annotated";
     return parts.join("/");
   }
@@ -70,6 +64,12 @@ export async function OPTIONS() {
   return NextResponse.json({}, { status: 204 });
 }
 
+function getBaseUrl(req: Request) {
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || process.env.VERCEL_URL || "";
+  if (envUrl) return envUrl.startsWith("http") ? envUrl : `https://${envUrl}`;
+  return new URL(req.url).origin;
+}
+
 export async function POST(req: Request) {
   const sb = admin();
 
@@ -77,7 +77,6 @@ export async function POST(req: Request) {
     const auth = req.headers.get("authorization") || req.headers.get("Authorization") || "";
     const jwt = auth.startsWith("Bearer ") ? auth.slice(7) : null;
     if (!jwt) return NextResponse.json({ error: "unauthorized_missing_token" }, { status: 401 });
-
     const userRes = await sb.auth.getUser(jwt);
     const user = userRes.data.user;
     if (!user) return NextResponse.json({ error: "unauthorized_invalid_token" }, { status: 401 });
@@ -87,7 +86,6 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return NextResponse.json({ error: "invalid_body", issues: parsed.error.flatten() }, { status: 400 });
     }
-
     const { caseId, reportVersion, imagePaths, notes } = parsed.data;
     const uniqueImages = unique(imagePaths.map((p) => p.trim()).filter(Boolean));
     if (!uniqueImages.length) return NextResponse.json({ error: "no_valid_images" }, { status: 400 });
@@ -147,16 +145,12 @@ export async function POST(req: Request) {
         geometry: Required<NonNullable<Finding["geometry"]>>;
       }>
     > = {};
-
-    const ensureGeom = (g: Finding["geometry"]) => {
-      return {
-        circles: Array.isArray(g?.circles) ? g!.circles! : [],
-        lines: Array.isArray(g?.lines) ? g!.lines! : [],
-        polygons: Array.isArray(g?.polygons) ? g!.polygons! : [],
-        boxes: Array.isArray(g?.boxes) ? g!.boxes! : [],
-      };
-    };
-
+    const ensureGeom = (g: Finding["geometry"]) => ({
+      circles: Array.isArray(g?.circles) ? g!.circles! : [],
+      lines: Array.isArray(g?.lines) ? g!.lines! : [],
+      polygons: Array.isArray(g?.polygons) ? g!.polygons! : [],
+      boxes: Array.isArray(g?.boxes) ? g!.boxes! : [],
+    });
     findings.forEach((f, idx) => {
       const path = String(f.image_id || "");
       if (!path || !uniqueImages.includes(path)) return;
@@ -179,7 +173,6 @@ export async function POST(req: Request) {
       status: "OPEN",
       notes: notes || null,
     };
-
     const { data: packet, error: pktErr } = await sb
       .from("review_packets")
       .insert(insertPacket)
@@ -197,7 +190,6 @@ export async function POST(req: Request) {
 
     let imageInsertOk = true;
     let imageInsertErr: string | null = null;
-
     {
       const { error } = await sb.from("review_packet_images").insert(rowsFull);
       if (error) {
@@ -218,7 +210,6 @@ export async function POST(req: Request) {
         }
       }
     }
-
     if (!imageInsertOk) {
       await sb.from("review_packets").delete().eq("id", packet.id);
       return NextResponse.json({ error: "images_insert_failed", details: imageInsertErr }, { status: 500 });
@@ -242,7 +233,6 @@ export async function POST(req: Request) {
         metaSaved = false;
       }
     }
-
     if (!metaSaved) {
       const updateRow: Record<string, unknown> = {};
       updateRow["template_meta"] = templateMeta;
@@ -252,6 +242,53 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "packet_update_failed", details: upd.error.message }, { status: 500 });
       }
     }
+
+    const baseUrl = getBaseUrl(req);
+    const pdfRes = await fetch(`${baseUrl}/api/reports/pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        caseId,
+        draftVersion: reportVersion,
+        rebuttalVersion: "latest",
+        images: uniqueImages,
+      }),
+    });
+
+    if (!pdfRes.ok) {
+      await sb.from("review_packet_images").delete().eq("packet_id", packet.id);
+      await sb.from("review_packets").delete().eq("id", packet.id);
+      const details = await pdfRes.text().catch(() => "Failed to render PDF");
+      return NextResponse.json({ error: "pdf_render_failed", details }, { status: 500 });
+    }
+
+    const pdfArrayBuffer = await pdfRes.arrayBuffer();
+    const pdfBytes = Buffer.from(pdfArrayBuffer);
+    const versionedKey = `pdf/${caseId}/v${reportVersion}.pdf`;
+    const latestKey = `pdf/${caseId}/latest.pdf`;
+
+    const up1 = await sb.storage.from(IMAGE_BUCKET).upload(versionedKey, pdfBytes, {
+      contentType: "application/pdf",
+      upsert: true,
+      cacheControl: "3600",
+    });
+    if (up1.error) {
+      await sb.from("review_packet_images").delete().eq("packet_id", packet.id);
+      await sb.from("review_packets").delete().eq("id", packet.id);
+      return NextResponse.json({ error: "pdf_upload_failed", details: up1.error.message }, { status: 500 });
+    }
+
+    const up2 = await sb.storage.from(IMAGE_BUCKET).upload(latestKey, pdfBytes, {
+      contentType: "application/pdf",
+      upsert: true,
+      cacheControl: "60",
+    });
+    if (up2.error) {
+      return NextResponse.json({ error: "pdf_latest_upload_failed", details: up2.error.message }, { status: 500 });
+    }
+
+    const signedVersioned = await sb.storage.from(IMAGE_BUCKET).createSignedUrl(versionedKey, SIGNED_URL_TTL);
+    const signedLatest = await sb.storage.from(IMAGE_BUCKET).createSignedUrl(latestKey, SIGNED_URL_TTL);
 
     return NextResponse.json(
       {
@@ -270,6 +307,17 @@ export async function POST(req: Request) {
             position: i + 1,
             overlays: overlaysByPath[p] || [],
           })),
+          pdf: {
+            bucket: IMAGE_BUCKET,
+            versioned_path: versionedKey,
+            latest_path: latestKey,
+            size_bytes: pdfBytes.byteLength,
+            signed: {
+              versioned_url: signedVersioned.data?.signedUrl || null,
+              latest_url: signedLatest.data?.signedUrl || null,
+              ttl_seconds: SIGNED_URL_TTL,
+            },
+          },
         },
       },
       { status: 201, headers: { "Cache-Control": "no-store" } }
