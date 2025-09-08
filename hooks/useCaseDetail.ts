@@ -1,7 +1,6 @@
-// hooks/useCaseDetail.ts
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getSupabaseBrowser } from "../lib/supabaseBrowser";
 
 export type CaseImage = { storage_path: string; is_original: boolean | null; created_at: string | null };
@@ -27,6 +26,12 @@ type TreatmentGoal =
     }
   | null;
 
+// ---- Row types for Supabase results ----
+type CaseRow = { id: string; title: string | null; status: string | null };
+type ImageRow = { storage_path: string; is_original: boolean | null; created_at: string | null };
+type ReportRow = { version: number | null; payload: any | null; narrative: string | null };
+
+// ---- helpers ----
 function toNumber(v: unknown, def = 0): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
@@ -37,7 +42,7 @@ function asString(v: unknown): string {
 function normalizeGeometry(g: any) {
   if (!g || typeof g !== "object") return null;
   const out: any = {};
-  if (Array.isArray(g.circles)) {
+  if (Array.isArray(g?.circles)) {
     out.circles = g.circles
       .map((c: any) => ({
         cx: toNumber(c?.cx),
@@ -47,7 +52,7 @@ function normalizeGeometry(g: any) {
       }))
       .filter((c: any) => Number.isFinite(c.cx) && Number.isFinite(c.cy) && Number.isFinite(c.r));
   }
-  if (Array.isArray(g.lines)) {
+  if (Array.isArray(g?.lines)) {
     out.lines = g.lines
       .map((l: any) => ({
         x1: toNumber(l?.x1),
@@ -58,7 +63,7 @@ function normalizeGeometry(g: any) {
       }))
       .filter((l: any) => Number.isFinite(l.x1) && Number.isFinite(l.y1) && Number.isFinite(l.x2) && Number.isFinite(l.y2));
   }
-  if (Array.isArray(g.polygons)) {
+  if (Array.isArray(g?.polygons)) {
     out.polygons = g.polygons
       .map((p: any) => ({
         points: Array.isArray(p?.points)
@@ -70,7 +75,7 @@ function normalizeGeometry(g: any) {
       }))
       .filter((p: any) => p.points.length >= 2);
   }
-  if (Array.isArray(g.boxes)) {
+  if (Array.isArray(g?.boxes)) {
     out.boxes = g.boxes
       .map((b: any) => ({
         x: toNumber(b?.x),
@@ -83,7 +88,6 @@ function normalizeGeometry(g: any) {
   }
   return Object.keys(out).length ? out : null;
 }
-
 function coerceTreatmentGoal(raw: any): TreatmentGoal {
   if (raw == null) return null;
   if (typeof raw === "string") {
@@ -108,7 +112,6 @@ function coerceTreatmentGoal(raw: any): TreatmentGoal {
 }
 
 export default function useCaseDetail(caseId?: string | null) {
-  const supabase = useMemo(() => getSupabaseBrowser(), []);
   const [state, setState] = useState<State>({ data: null, isLoading: true, error: null });
 
   const fetchDetail = useCallback(async () => {
@@ -116,124 +119,135 @@ export default function useCaseDetail(caseId?: string | null) {
       setState({ data: null, isLoading: false, error: "Missing case id" });
       return;
     }
+
     setState((s) => ({ ...s, isLoading: true, error: null }));
 
-    const { data, error } = await supabase
-      .from("cases")
-      .select(
-        `
-        id,
-        title,
-        status,
-        images:case_images(storage_path, is_original, created_at),
-        latestReport:reports(version, payload, narrative)
-      `
-      )
-      .eq("id", caseId)
-      .order("version", { ascending: false, foreignTable: "reports" })
-      .limit(1, { foreignTable: "reports" })
-      .single();
+    try {
+      const supabase = getSupabaseBrowser();
 
-    if (error || !data) {
-      setState({ data: null, isLoading: false, error: error?.message ?? "Not found" });
-      return;
-    }
+      // 1) Case
+      const { data: caseData, error: caseErr } = await supabase
+        .from("cases")
+        .select("id,title,status")
+        .eq("id", caseId)
+        .single();
 
-    const imgs: CaseImage[] = Array.isArray((data as any).images) ? (data as any).images : [];
-    const imagesSorted = imgs
-      .slice()
-      .sort(
-        (a, b) =>
-          Number(b.is_original) - Number(a.is_original) ||
-          new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+      if (caseErr || !caseData) throw new Error(caseErr?.message ?? "Case not found");
+      const caseRow = caseData as CaseRow;
+
+      // 2) Images
+      const { data: imagesData, error: imgErr } = await supabase
+        .from("case_images")
+        .select("storage_path,is_original,created_at")
+        .eq("case_id", caseId)
+        .order("created_at", { ascending: true });
+
+      if (imgErr) throw new Error(imgErr.message);
+      const imagesRows = (imagesData ?? []) as ImageRow[];
+      const imagesSorted: CaseImage[] = imagesRows
+        .slice()
+        .sort(
+          (a, b) =>
+            Number(b.is_original) - Number(a.is_original) ||
+            new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+        );
+
+      // 3) Latest report
+      const { data: repData, error: repErr } = await supabase
+        .from("reports")
+        .select("version,payload,narrative")
+        .eq("case_id", caseId)
+        .order("version", { ascending: false })
+        .limit(1);
+
+      if (repErr) throw new Error(repErr.message);
+      const reportRows = (repData ?? []) as ReportRow[];
+      const latest: ReportRow | null = reportRows.length ? reportRows[0] : null;
+
+      // manifest + helpers
+      const manifest = imagesSorted.map((row, i) => ({ index: i, id: row.storage_path, path: row.storage_path }));
+      const indexById = new Map<string, number>();
+      manifest.forEach((m) => indexById.set(m.id, m.index));
+
+      // normalize payload
+      const p: any = (latest?.payload ?? {}) as any;
+      const summary = typeof p.summary === "string" && p.summary.trim() ? p.summary : latest?.narrative ?? null;
+      const measurements = typeof p.measurements === "object" && p.measurements ? p.measurements : {};
+      const occlusion = typeof p.occlusion === "object" && p.occlusion ? p.occlusion : {};
+      const hygiene = typeof p.hygiene === "object" && p.hygiene ? p.hygiene : {};
+      const recommendations = Array.isArray(p.recommendations)
+        ? p.recommendations.map((x: any) => asString(x)).filter(Boolean)
+        : [];
+      const treatment_goal_final = coerceTreatmentGoal(
+        p.treatment_goal_final ?? p.final_treatment_goal ?? p.treatment_goal
       );
 
-    const latest = Array.isArray((data as any).latestReport) && (data as any).latestReport.length
-      ? (data as any).latestReport[0]
-      : null;
+      const findingsRaw: any[] = Array.isArray(p.findings) ? p.findings : [];
+      const findings = findingsRaw.map((f) => {
+        const tooth_fdi = toNumber(f?.tooth_fdi ?? f?.tooth ?? 0);
+        const texts = Array.isArray(f?.findings)
+          ? f.findings.map((t: any) => asString(t)).filter(Boolean)
+          : asString(f?.note)
+          ? [asString(f?.note)]
+          : [];
+        const image_index =
+          Number.isInteger(f?.image_index) && f?.image_index >= 0
+            ? Number(f.image_index)
+            : typeof f?.image_id === "string" && f.image_id
+            ? indexById.get(f.image_id) ?? null
+            : null;
+        const image_id =
+          typeof f?.image_id === "string" && f.image_id
+            ? f.image_id
+            : Number.isInteger(image_index) && image_index! >= 0 && image_index! < imagesSorted.length
+            ? imagesSorted[image_index!].storage_path
+            : null;
+        return {
+          tooth_fdi,
+          findings: texts,
+          severity: p?.severity_map ? p.severity_map[tooth_fdi] ?? f?.severity ?? null : f?.severity ?? null,
+          confidence: typeof f?.confidence === "number" ? f.confidence : null,
+          image_index,
+          image_id,
+          geometry: normalizeGeometry(f?.geometry),
+        };
+      });
 
-    const manifest = imagesSorted.map((row, i) => ({
-      index: i,
-      id: row.storage_path,
-      path: row.storage_path,
-    }));
-    const indexById = new Map<string, number>();
-    manifest.forEach((m) => indexById.set(m.id, m.index));
+      const rebuttal = p?.rebuttal && typeof p.rebuttal === "object" ? p.rebuttal : undefined;
 
-    const p = latest?.payload ?? {};
-    const summary = typeof p.summary === "string" && p.summary.trim() ? p.summary : latest?.narrative ?? null;
-    const measurements = typeof p.measurements === "object" && p.measurements ? p.measurements : {};
-    const occlusion = typeof p.occlusion === "object" && p.occlusion ? p.occlusion : {};
-    const hygiene = typeof p.hygiene === "object" && p.hygiene ? p.hygiene : {};
-    const recommendations = Array.isArray(p.recommendations)
-      ? p.recommendations.map((x: any) => asString(x)).filter(Boolean)
-      : [];
-    const treatment_goal_final = coerceTreatmentGoal(
-      p.treatment_goal_final ?? p.final_treatment_goal ?? p.treatment_goal
-    );
-
-    const findingsRaw: any[] = Array.isArray(p.findings) ? p.findings : [];
-    const findings = findingsRaw.map((f) => {
-      const tooth_fdi = toNumber(f?.tooth_fdi ?? f?.tooth ?? 0);
-      const texts = Array.isArray(f?.findings)
-        ? f.findings.map((t: any) => asString(t)).filter(Boolean)
-        : asString(f?.note)
-        ? [asString(f?.note)]
-        : [];
-      const image_index =
-        Number.isInteger(f?.image_index) && f?.image_index >= 0
-          ? Number(f.image_index)
-          : typeof f?.image_id === "string" && f.image_id
-          ? indexById.get(f.image_id) ?? null
-          : null;
-      const image_id =
-        typeof f?.image_id === "string" && f.image_id
-          ? f.image_id
-          : Number.isInteger(image_index) && image_index! >= 0 && image_index! < imagesSorted.length
-          ? imagesSorted[image_index!].storage_path
-          : null;
-      return {
-        tooth_fdi,
-        findings: texts,
-        severity: p?.severity_map ? p.severity_map[tooth_fdi] ?? f?.severity ?? null : f?.severity ?? null,
-        confidence: typeof f?.confidence === "number" ? f.confidence : null,
-        image_index,
-        image_id,
-        geometry: normalizeGeometry(f?.geometry),
+      const normalizedPayload = {
+        summary,
+        measurements,
+        occlusion,
+        hygiene,
+        recommendations,
+        treatment_goal_final,
+        findings,
+        images: manifest,
+        rebuttal,
+        _meta: { ...(p?._meta || {}) },
       };
-    });
 
-    const rebuttal = p?.rebuttal && typeof p.rebuttal === "object" ? p.rebuttal : undefined;
-
-    const normalizedPayload = {
-      summary,
-      measurements,
-      occlusion,
-      hygiene,
-      recommendations,
-      treatment_goal_final,
-      findings,
-      images: manifest,
-      rebuttal,
-      _meta: { ...(p?._meta || {}) },
-    };
-
-    setState({
-      data: {
-        case: { id: String((data as any).id), title: (data as any).title ?? null, status: (data as any).status ?? null },
-        images: imagesSorted,
-        latestReport: latest
-          ? {
-              version: Number(latest.version),
-              payload: normalizedPayload,
-              narrative: latest.narrative ?? null,
-            }
-          : null,
-      },
-      isLoading: false,
-      error: null,
-    });
-  }, [caseId, supabase]);
+      setState({
+        data: {
+          case: { id: String(caseRow.id), title: caseRow.title ?? null, status: caseRow.status ?? null },
+          images: imagesSorted,
+          latestReport: latest
+            ? {
+                version: Number(latest.version ?? 0),
+                payload: normalizedPayload,
+                narrative: latest.narrative ?? null,
+              }
+            : null,
+        },
+        isLoading: false,
+        error: null,
+      });
+    } catch (e: any) {
+      console.error("[useCaseDetail] load failed:", e);
+      setState({ data: null, isLoading: false, error: e?.message ?? "Failed to load" });
+    }
+  }, [caseId]);
 
   useEffect(() => {
     fetchDetail();
@@ -248,12 +262,14 @@ export default function useCaseDetail(caseId?: string | null) {
       const id = (e as CustomEvent).detail?.caseId as string | undefined;
       if (!id || id === caseId) void fetchDetail();
     };
-    window.addEventListener("ai:rebuttalSaved", onRebuttal as EventListener);
-    window.addEventListener("report:templateUpserted", onTemplateUpsert as EventListener);
-    return () => {
-      window.removeEventListener("ai:rebuttalSaved", onRebuttal as EventListener);
-      window.removeEventListener("report:templateUpserted", onTemplateUpsert as EventListener);
-    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("ai:rebuttalSaved", onRebuttal as EventListener);
+      window.addEventListener("report:templateUpserted", onTemplateUpsert as EventListener);
+      return () => {
+        window.removeEventListener("ai:rebuttalSaved", onRebuttal as EventListener);
+        window.removeEventListener("report:templateUpserted", onTemplateUpsert as EventListener);
+      };
+    }
   }, [caseId, fetchDetail]);
 
   const refresh = useCallback(async () => {
@@ -304,11 +320,8 @@ export default function useCaseDetail(caseId?: string | null) {
 
       setState((s) => {
         if (!s?.data?.latestReport) return s;
-        const curr = s.data.latestReport;
-        const updated = {
-          ...curr,
-          payload: { ...curr.payload, treatment_goal_final: next },
-        };
+        const curr = s.data.latestReport!;
+        const updated = { ...curr, payload: { ...curr.payload, treatment_goal_final: next } };
         return { ...s, data: { ...s.data, latestReport: updated } };
       });
 

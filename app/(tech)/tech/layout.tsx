@@ -37,12 +37,12 @@ export default async function TechLayout({ children }: { children: React.ReactNo
   return (
     <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]">
       <div className="container-app">
-        <div className="w-full max-w-none px-6 pt-4">
+        <div className="w-full px-6 pt-4">
           <SubnavTech />
         </div>
       </div>
       <main className="container-app">
-        <div className="w-full max-w-none px-6 pb-10">{children}</div>
+        <div className="w-full px-6 pb-10">{children}</div>
       </main>
     </div>
   );

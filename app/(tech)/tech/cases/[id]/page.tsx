@@ -1,23 +1,107 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import ImageViewer from "./components/ImageViewer";
 import Comments from "./components/Comments";
 import useCaseDetail from "../../../../../hooks/useCaseDetail";
 import useAuthSession from "../../../../../hooks/useAuthSession";
+import { getSupabaseBrowser } from "../../../../../lib/supabaseBrowser";
 
 type CaseDetail = {
-  case: {
-    id: string;
-    title?: string | null;
-    status?: string | null;
-    assigned_to?: string | null; 
-  } | null;
+  case: { id: string; title?: string | null; status?: string | null; assigned_to?: string | null } | null;
   images?: { storage_path: string; is_original?: boolean | null }[] | null;
   latestReport?: { version?: number | null; payload?: any; narrative?: string | null } | null;
 };
+
+function ReportViewer({
+  caseId,
+  version,
+  explicitPath,
+  bucket = process.env.NEXT_PUBLIC_REPORTS_BUCKET || "reports",
+}: {
+  caseId: string;
+  version: number;
+  explicitPath?: string;
+  bucket?: string;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    (async () => {
+      setLoading(true);
+      setErr(null);
+      setUrl(null);
+
+      try {
+        if (explicitPath && explicitPath.startsWith("http")) {
+          if (!cancelled) setUrl(explicitPath);
+          return;
+        }
+
+        const supabase = getSupabaseBrowser();
+
+        const candidates: string[] = [];
+        if (explicitPath && !explicitPath.startsWith("http")) candidates.push(explicitPath);
+        candidates.push(`${caseId}/v${version}.pdf`);
+        candidates.push(`reports/${caseId}/v${version}.pdf`);
+        candidates.push(`cases/${caseId}/v${version}.pdf`);
+
+        let found: Blob | null = null;
+
+        for (const path of candidates) {
+          const { data, error } = await supabase.storage.from(bucket).download(path);
+          if (!error && data) {
+            found = data;
+            break;
+          }
+        }
+
+        if (!found) {
+          setErr("Report not found");
+          return;
+        }
+
+        objectUrl = URL.createObjectURL(found);
+        if (!cancelled) setUrl(objectUrl);
+      } catch (e: any) {
+        if (!cancelled) setErr(e?.message ?? "Failed to load report");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [bucket, caseId, version, explicitPath]);
+
+  if (loading) return <div className="skeleton h-[560px] w-full rounded-2xl" />;
+
+  if (!url) {
+    return (
+      <section className="card-lg flex h-[560px] items-center justify-center text-center">
+        <div>
+          <p className="font-medium">No report PDF found</p>
+          <p className="muted text-sm">{err ?? "Ask the dentist to share the report or check the storage path."}</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <div className="h-[560px] overflow-hidden rounded-2xl border">
+      <iframe title="Report PDF" src={url} className="h-full w-full" />
+    </div>
+  );
+}
 
 export default function TechCaseDetailPage() {
   const router = useRouter();
@@ -37,8 +121,7 @@ export default function TechCaseDetailPage() {
   const status = data?.case?.status || "OPEN";
   const assignedTo = data?.case?.assigned_to ?? null;
 
-  const latestVersion =
-    typeof data?.latestReport?.version === "number" ? data.latestReport!.version! : 1;
+  const latestVersion = typeof data?.latestReport?.version === "number" ? data.latestReport!.version! : 1;
 
   const firstImage = useMemo(() => {
     return (
@@ -48,8 +131,12 @@ export default function TechCaseDetailPage() {
     );
   }, [data?.images]);
 
-  const forbidden =
-    !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
+  const explicitPdfPath =
+    (data?.latestReport?.payload?.pdf_path as string | undefined) ||
+    ((data?.latestReport as any)?.pdf_path as string | undefined) ||
+    undefined;
+
+  const forbidden = !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
 
   useEffect(() => {
     if (forbidden) router.replace("/tech/cases");
@@ -113,15 +200,18 @@ export default function TechCaseDetailPage() {
       {!isLoading && !error && !forbidden && (
         <div className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
-            <ImageViewer path={firstImage} caption="Shared image" />
-            <section className="card-lg">
-              <h2 className="mb-2 text-base font-semibold">Instructions</h2>
-              <ul className="list-inside list-disc text-sm text-[var(--color-text)]/90">
-                <li>Review the shared image and the latest report version.</li>
-                <li>Leave concise, actionable feedback for the dentist.</li>
-                <li>Focus on clarity, missing details, and measurable suggestions.</li>
-              </ul>
-            </section>
+            <ReportViewer caseId={caseId} version={latestVersion} explicitPath={explicitPdfPath} />
+            <div className="space-y-6">
+              <ImageViewer path={firstImage} caption="Shared image" />
+              <section className="card-lg">
+                <h2 className="mb-2 text-base font-semibold">Instructions</h2>
+                <ul className="list-inside list-disc text-sm text-[var(--color-text)]/90">
+                  <li>Review the shared image and the latest report version.</li>
+                  <li>Leave concise, actionable feedback for the dentist.</li>
+                  <li>Focus on clarity, missing details, and measurable suggestions.</li>
+                </ul>
+              </section>
+            </div>
           </div>
 
           <Comments caseId={caseId} targetVersion={latestVersion} canPost onPosted={refetch} />
