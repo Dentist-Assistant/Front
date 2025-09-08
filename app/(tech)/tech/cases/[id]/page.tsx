@@ -1,3 +1,4 @@
+// app/tech/cases/[id]/page.tsx
 "use client";
 
 import { useEffect, useMemo } from "react";
@@ -10,7 +11,7 @@ import useAuthSession from "../../../../../hooks/useAuthSession";
 import ReportViewer from "./components/ReportViewer";
 
 type CaseDetail = {
-  case: { id: string; title?: string | null; status?: string | null; assigned_to?: string | null } | null;
+  case: { id: string; title?: string | null; status?: string | null; assigned_tech?: string | null } | null;
   images?: { storage_path: string; is_original?: boolean | null }[] | null;
   latestReport?: { version?: number | null; payload?: any; narrative?: string | null } | null;
 };
@@ -22,19 +23,18 @@ export default function TechCaseDetailPage() {
   const { session } = useAuthSession();
   const userId = session?.user?.id ?? null;
 
-  const { data, isLoading, error, refetch } = (useCaseDetail(caseId) as unknown) as {
+  const { data, isLoading, error, refresh } = useCaseDetail(caseId) as {
     data: CaseDetail | null;
     isLoading: boolean;
     error: unknown;
-    refetch: () => Promise<void>;
+    refresh: () => Promise<void>;
   };
 
   const title = data?.case?.title || "Case";
   const status = data?.case?.status || "OPEN";
-  const assignedTo = data?.case?.assigned_to ?? null;
+  const assignedTo = data?.case?.assigned_tech ?? null;
 
-  const latestVersion =
-    typeof data?.latestReport?.version === "number" ? data.latestReport!.version! : 1;
+  const latestVersion = typeof data?.latestReport?.version === "number" ? data.latestReport!.version! : 1;
 
   const firstImage = useMemo(() => {
     return (
@@ -44,7 +44,6 @@ export default function TechCaseDetailPage() {
     );
   }, [data?.images]);
 
-  // Si el payload trae un path explícito, lo pasamos tal cual.
   const explicitPdfPath = useMemo(() => {
     const p =
       (data?.latestReport?.payload?.pdf_path as string | undefined) ??
@@ -52,8 +51,7 @@ export default function TechCaseDetailPage() {
     return p || undefined;
   }, [data?.latestReport]);
 
-  const forbidden =
-    !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
+  const forbidden = !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
 
   useEffect(() => {
     if (forbidden) router.replace("/tech/cases");
@@ -117,7 +115,6 @@ export default function TechCaseDetailPage() {
       {!isLoading && !error && !forbidden && (
         <div className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* Report PDF (lee del bucket `cases` y paths tipo pdf/<caseId>/vX.pdf) */}
             <ReportViewer caseId={caseId} version={latestVersion} explicitPath={explicitPdfPath} />
 
             <div className="space-y-6">
@@ -133,7 +130,7 @@ export default function TechCaseDetailPage() {
             </div>
           </div>
 
-          <Comments caseId={caseId} targetVersion={latestVersion} canPost onPosted={refetch} />
+          <Comments caseId={caseId} targetVersion={latestVersion} canPost onPosted={refresh} />
         </div>
       )}
     </div>

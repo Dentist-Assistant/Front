@@ -1,3 +1,4 @@
+// hooks/useCaseDetail.ts
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -6,7 +7,7 @@ import { getSupabaseBrowser } from "../lib/supabaseBrowser";
 export type CaseImage = { storage_path: string; is_original: boolean | null; created_at: string | null };
 export type LatestReport = { version: number; payload: any; narrative: string | null };
 export type CaseDetail = {
-  case: { id: string; title: string | null; status: string | null } | null;
+  case: { id: string; title: string | null; status: string | null; assigned_tech?: string | null } | null;
   images: CaseImage[];
   latestReport: LatestReport | null;
 };
@@ -26,12 +27,10 @@ type TreatmentGoal =
     }
   | null;
 
-// ---- Row types for Supabase results ----
-type CaseRow = { id: string; title: string | null; status: string | null };
+type CaseRow = { id: string; title: string | null; status: string | null; assigned_tech: string | null };
 type ImageRow = { storage_path: string; is_original: boolean | null; created_at: string | null };
 type ReportRow = { version: number | null; payload: any | null; narrative: string | null };
 
-// ---- helpers ----
 function toNumber(v: unknown, def = 0): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
@@ -125,17 +124,15 @@ export default function useCaseDetail(caseId?: string | null) {
     try {
       const supabase = getSupabaseBrowser();
 
-      // 1) Case
       const { data: caseData, error: caseErr } = await supabase
         .from("cases")
-        .select("id,title,status")
+        .select("id,title,status,assigned_tech")
         .eq("id", caseId)
         .single();
 
       if (caseErr || !caseData) throw new Error(caseErr?.message ?? "Case not found");
       const caseRow = caseData as CaseRow;
 
-      // 2) Images
       const { data: imagesData, error: imgErr } = await supabase
         .from("case_images")
         .select("storage_path,is_original,created_at")
@@ -152,7 +149,6 @@ export default function useCaseDetail(caseId?: string | null) {
             new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
         );
 
-      // 3) Latest report
       const { data: repData, error: repErr } = await supabase
         .from("reports")
         .select("version,payload,narrative")
@@ -164,12 +160,10 @@ export default function useCaseDetail(caseId?: string | null) {
       const reportRows = (repData ?? []) as ReportRow[];
       const latest: ReportRow | null = reportRows.length ? reportRows[0] : null;
 
-      // manifest + helpers
       const manifest = imagesSorted.map((row, i) => ({ index: i, id: row.storage_path, path: row.storage_path }));
       const indexById = new Map<string, number>();
       manifest.forEach((m) => indexById.set(m.id, m.index));
 
-      // normalize payload
       const p: any = (latest?.payload ?? {}) as any;
       const summary = typeof p.summary === "string" && p.summary.trim() ? p.summary : latest?.narrative ?? null;
       const measurements = typeof p.measurements === "object" && p.measurements ? p.measurements : {};
@@ -230,7 +224,12 @@ export default function useCaseDetail(caseId?: string | null) {
 
       setState({
         data: {
-          case: { id: String(caseRow.id), title: caseRow.title ?? null, status: caseRow.status ?? null },
+          case: {
+            id: String(caseRow.id),
+            title: caseRow.title ?? null,
+            status: caseRow.status ?? null,
+            assigned_tech: caseRow.assigned_tech ?? null,
+          },
           images: imagesSorted,
           latestReport: latest
             ? {
@@ -252,25 +251,6 @@ export default function useCaseDetail(caseId?: string | null) {
   useEffect(() => {
     fetchDetail();
   }, [fetchDetail]);
-
-  useEffect(() => {
-    const onRebuttal = (e: Event) => {
-      const id = (e as CustomEvent).detail?.caseId as string | undefined;
-      if (!id || id === caseId) void fetchDetail();
-    };
-    const onTemplateUpsert = (e: Event) => {
-      const id = (e as CustomEvent).detail?.caseId as string | undefined;
-      if (!id || id === caseId) void fetchDetail();
-    };
-    if (typeof window !== "undefined") {
-      window.addEventListener("ai:rebuttalSaved", onRebuttal as EventListener);
-      window.addEventListener("report:templateUpserted", onTemplateUpsert as EventListener);
-      return () => {
-        window.removeEventListener("ai:rebuttalSaved", onRebuttal as EventListener);
-        window.removeEventListener("report:templateUpserted", onTemplateUpsert as EventListener);
-      };
-    }
-  }, [caseId, fetchDetail]);
 
   const refresh = useCallback(async () => {
     await fetchDetail();
@@ -325,9 +305,6 @@ export default function useCaseDetail(caseId?: string | null) {
         return { ...s, data: { ...s.data, latestReport: updated } };
       });
 
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("report:templateUpserted", { detail: { caseId, patch } }));
-      }
       await fetchDetail();
       return { ok: true as const };
     },
@@ -339,6 +316,7 @@ export default function useCaseDetail(caseId?: string | null) {
     isLoading: state.isLoading,
     error: state.error,
     refresh,
+    refetch: refresh,
     updateTreatmentGoalFinal,
   };
 }

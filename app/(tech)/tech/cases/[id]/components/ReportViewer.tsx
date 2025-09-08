@@ -1,3 +1,4 @@
+// app/tech/cases/[id]/components/ReportViewer.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -6,8 +7,8 @@ import { getSupabaseBrowser } from "../../../../../../lib/supabaseBrowser";
 type Props = {
   caseId: string;
   version: number;
-  explicitPath?: string; 
-  bucket?: string;       
+  explicitPath?: string;
+  bucket?: string;
   height?: number;
 };
 
@@ -23,7 +24,7 @@ export default function ReportViewer({
   const supabase = getSupabaseBrowser();
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,21 +42,17 @@ export default function ReportViewer({
         }
 
         const candidates: string[] = [];
-        if (explicitPath && !/^https?:\/\//i.test(explicitPath)) {
-          candidates.push(explicitPath);
-        }
+        if (explicitPath && !/^https?:\/\//i.test(explicitPath)) candidates.push(explicitPath);
         candidates.push(`pdf/${caseId}/v${version}.pdf`);
         candidates.push(`${caseId}/v${version}.pdf`);
         candidates.push(`pdf/${caseId}/latest.pdf`);
 
         let found: Blob | null = null;
-        let usedPath = "";
 
         for (const p of candidates) {
           const { data, error } = await supabase.storage.from(bucket).download(p);
           if (!error && data) {
             found = data;
-            usedPath = p;
             break;
           }
         }
@@ -66,11 +63,7 @@ export default function ReportViewer({
         }
 
         objectUrl = URL.createObjectURL(found);
-        if (!cancelled) {
-          setUrl(objectUrl);
-        
-          console.debug("[ReportViewer] Using", { bucket, path: usedPath });
-        }
+        if (!cancelled) setUrl(objectUrl);
       } catch (e: any) {
         if (!cancelled) setErr(e?.message ?? "Failed to load report");
       } finally {
