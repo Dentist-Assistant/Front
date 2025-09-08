@@ -44,6 +44,11 @@ function annotatePath(p: string) {
   }
   return `annotated/${p}`;
 }
+function getBaseUrl(req: Request) {
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || process.env.VERCEL_URL || "";
+  if (envUrl) return envUrl.startsWith("http") ? envUrl : `https://${envUrl}`;
+  return new URL(req.url).origin;
+}
 
 type Finding = {
   tooth_fdi?: number;
@@ -62,12 +67,6 @@ type Finding = {
 
 export async function OPTIONS() {
   return NextResponse.json({}, { status: 204 });
-}
-
-function getBaseUrl(req: Request) {
-  const envUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || process.env.VERCEL_URL || "";
-  if (envUrl) return envUrl.startsWith("http") ? envUrl : `https://${envUrl}`;
-  return new URL(req.url).origin;
 }
 
 export async function POST(req: Request) {
@@ -243,27 +242,53 @@ export async function POST(req: Request) {
       }
     }
 
-    const baseUrl = getBaseUrl(req);
-    const pdfRes = await fetch(`${baseUrl}/api/reports/pdf`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        caseId,
-        draftVersion: reportVersion,
-        rebuttalVersion: "latest",
-        images: uniqueImages,
-      }),
-    });
+    let pdfBytes: Buffer | null = null;
+    try {
+      const mod = await import("../../reports/pdf/route");
+      const Render = (mod as any).POST as (r: Request) => Promise<Response>;
+      const r = await Render(
+        new Request("http://internal/api/reports/pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            caseId,
+            draftVersion: reportVersion,
+            rebuttalVersion: "latest",
+            images: uniqueImages,
+          }),
+        })
+      );
+      if (r.ok) {
+        const ab = await r.arrayBuffer();
+        pdfBytes = Buffer.from(ab);
+      }
+    } catch {}
 
-    if (!pdfRes.ok) {
-      await sb.from("review_packet_images").delete().eq("packet_id", packet.id);
-      await sb.from("review_packets").delete().eq("id", packet.id);
-      const details = await pdfRes.text().catch(() => "Failed to render PDF");
-      return NextResponse.json({ error: "pdf_render_failed", details }, { status: 500 });
+    if (!pdfBytes) {
+      const baseUrl = getBaseUrl(req);
+      const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET || process.env.VERCEL_PROTECTION_BYPASS || "";
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (bypass) headers["x-vercel-protection-bypass"] = bypass;
+      const pdfRes = await fetch(`${baseUrl}/api/reports/pdf`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          caseId,
+          draftVersion: reportVersion,
+          rebuttalVersion: "latest",
+          images: uniqueImages,
+        }),
+      });
+      if (!pdfRes.ok) {
+        await sb.from("review_packet_images").delete().eq("packet_id", packet.id);
+        await sb.from("review_packets").delete().eq("id", packet.id);
+        const details = await pdfRes.text().catch(() => "Failed to render PDF");
+        return NextResponse.json({ error: "pdf_render_failed", details }, { status: 500 });
+      }
+      const ab = await pdfRes.arrayBuffer();
+      pdfBytes = Buffer.from(ab);
     }
 
-    const pdfArrayBuffer = await pdfRes.arrayBuffer();
-    const pdfBytes = Buffer.from(pdfArrayBuffer);
     const versionedKey = `pdf/${caseId}/v${reportVersion}.pdf`;
     const latestKey = `pdf/${caseId}/latest.pdf`;
 
