@@ -30,23 +30,34 @@ export default function Comments({
 
   const [items, setItems] = useState<CommentRow[]>([]);
   const [text, setText] = useState("");
-  const [loading, setLoading] = useState(true);        
+  const [loading, setLoading] = useState(true); 
   const [loadError, setLoadError] = useState<string | null>(null);
-
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
 
-  const mountedRef = useRef(true);
+  const mounted = useRef(true);
   useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
   const loadComments = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
+
     try {
+      if (!caseId) {
+        if (mounted.current) {
+          setItems([]);
+          setLoading(false);
+        }
+        return;
+      }
+
       await supabase.auth.getSession();
+
       const { data, error } = await supabase
         .from("review_comments")
         .select("*")
@@ -55,15 +66,16 @@ export default function Comments({
         .limit(100);
 
       if (error) throw error;
-      if (mountedRef.current) {
+
+      if (mounted.current) {
         setItems((data ?? []) as CommentRow[]);
-        setLoading(false);
       }
     } catch (e: any) {
-      if (mountedRef.current) {
+      if (mounted.current) {
         setLoadError(e?.message || "Failed to load comments");
-        setLoading(false);
       }
+    } finally {
+      if (mounted.current) setLoading(false);
     }
   }, [caseId, supabase]);
 
@@ -72,13 +84,17 @@ export default function Comments({
   }, [loadComments]);
 
   const reload = useCallback(async () => {
+    if (!caseId) return;
     const { data, error } = await supabase
       .from("review_comments")
       .select("*")
       .eq("case_id", caseId)
       .order("created_at", { ascending: false })
       .limit(100);
-    if (!error && mountedRef.current) setItems((data ?? []) as CommentRow[]);
+
+    if (!error && mounted.current) {
+      setItems((data ?? []) as CommentRow[]);
+    }
   }, [caseId, supabase]);
 
   const submit = useCallback(async () => {
@@ -106,7 +122,8 @@ export default function Comments({
         case_id: caseId,
         by_user: session.user.id,
         body,
-        target_version: typeof targetVersion === "number" ? targetVersion : null,
+        target_version:
+          typeof targetVersion === "number" ? targetVersion : null,
       } as any);
 
       if (error) {
@@ -118,7 +135,7 @@ export default function Comments({
       await reload();
       if (onPosted) await onPosted();
     } finally {
-      if (mountedRef.current) setPosting(false);
+      if (mounted.current) setPosting(false);
     }
   }, [caseId, session?.user?.id, targetVersion, text, supabase, reload, onPosted]);
 
@@ -138,7 +155,6 @@ export default function Comments({
         <span className="muted text-sm">{items.length}</span>
       </div>
 
-      {/* Error de carga con Retry */}
       {!!loadError && (
         <div
           role="alert"
@@ -150,7 +166,9 @@ export default function Comments({
         >
           <div className="flex items-center justify-between gap-3">
             <span>{loadError}</span>
-            <button className="btn btn-outline btn-sm" onClick={loadComments}>Retry</button>
+            <button className="btn btn-outline btn-sm" onClick={loadComments}>
+              Retry
+            </button>
           </div>
         </div>
       )}
@@ -182,7 +200,9 @@ export default function Comments({
                   {new Date(c.created_at).toLocaleString()}
                 </div>
               </div>
-              <p className="text-[var(--color-text)]/95 whitespace-pre-line">{c.body}</p>
+              <p className="text-[var(--color-text)]/95 whitespace-pre-line">
+                {c.body}
+              </p>
               {typeof c.target_version === "number" && (
                 <div className="mt-2 text-xs muted">v{c.target_version}</div>
               )}
@@ -193,15 +213,19 @@ export default function Comments({
 
       {canPost && (
         <div className="mt-4 space-y-2">
-          <label htmlFor="fb-tech" className="label">Add feedback</label>
+          <label htmlFor="fb-tech" className="label">
+            Add feedback
+          </label>
 
           {!!postError && (
             <div
               role="alert"
               className="rounded-2xl border px-4 py-2 text-sm"
               style={{
-                background: "color-mix(in oklab, var(--color-warning) 12%, transparent)",
-                borderColor: "color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))",
+                background:
+                  "color-mix(in oklab, var(--color-warning) 12%, transparent)",
+                borderColor:
+                  "color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))",
               }}
             >
               {postError}
