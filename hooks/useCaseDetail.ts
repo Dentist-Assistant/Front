@@ -128,6 +128,7 @@ export default function useCaseDetail(caseId?: string | null, opts?: { enabled?:
 
     try {
       const supabase = getSupabaseBrowser();
+      await supabase.auth.getSession();
 
       const { data: caseData, error: caseErr } = await supabase
         .from("cases")

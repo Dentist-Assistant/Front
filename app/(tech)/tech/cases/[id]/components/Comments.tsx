@@ -1,3 +1,4 @@
+// app/tech/cases/[id]/components/Comments.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -25,39 +26,48 @@ export default function Comments({
   onPosted?: () => void | Promise<void>;
 }) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
-  const { session } = useAuthSession();
+  const { session, isLoading: authLoading } = useAuthSession();
 
   const [items, setItems] = useState<CommentRow[]>([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
-
-  // Nuevos estados de error
   const [loadError, setLoadError] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
 
-  const load = async () => {
-    setLoading(true);
-    setLoadError(null);
-    const { data, error } = await supabase
-      .from("review_comments")
-      .select("*")
-      .eq("case_id", caseId)
-      .order("created_at", { ascending: false })
-      .limit(100);
-
-    if (error) {
-      setLoadError(error.message || "Failed to load comments");
-      setItems([]);
-    } else if (Array.isArray(data)) {
-      setItems(data as CommentRow[]);
-    }
-    setLoading(false);
-  };
-
   useEffect(() => {
-    load();
-  }, [caseId]);
+    if (authLoading) return;
+    const ac = new AbortController();
+    let cancelled = false;
+
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        await supabase.auth.getSession();
+        const { data, error } = await supabase
+          .from("review_comments")
+          .select("*")
+          .eq("case_id", caseId)
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (cancelled || ac.signal.aborted) return;
+        if (error) {
+          setLoadError(error.message || "Failed to load comments");
+          setItems([]);
+        } else if (Array.isArray(data)) {
+          setItems(data as CommentRow[]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [caseId, authLoading, supabase]);
 
   const submit = async () => {
     if (!session?.user?.id) return;
@@ -67,20 +77,25 @@ export default function Comments({
     setPosting(true);
     setPostError(null);
     try {
+      await supabase.auth.getSession();
       const { error } = await supabase.from("review_comments").insert({
         case_id: caseId,
         by_user: session.user.id,
         body,
         target_version: typeof targetVersion === "number" ? targetVersion : null,
       } as any);
-
       if (error) {
         setPostError(error.message || "Failed to post comment");
         return;
       }
-
       setText("");
-      await load();
+      const { data, error: reloadErr } = await supabase
+        .from("review_comments")
+        .select("*")
+        .eq("case_id", caseId)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (!reloadErr && Array.isArray(data)) setItems(data as CommentRow[]);
       if (onPosted) await onPosted();
     } finally {
       setPosting(false);
@@ -101,7 +116,6 @@ export default function Comments({
         <span className="muted text-sm">{items.length}</span>
       </div>
 
-      {/* Error al cargar */}
       {!!loadError && (
         <div
           role="alert"
@@ -157,7 +171,7 @@ export default function Comments({
             Add feedback
           </label>
 
-          {!!postError && (
+        {!!postError && (
             <div
               role="alert"
               className="rounded-2xl border px-4 py-2 text-sm"
@@ -172,12 +186,12 @@ export default function Comments({
 
           <textarea
             id="fb-tech"
-            className="textarea min-h-[88px]"
+            className="textarea min-h=[88px]"
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDownTextarea}
             placeholder="Write clear, actionable feedback…"
-            disabled={posting}
+            disabled={posting || authLoading}
             aria-busy={posting}
             aria-describedby="comment-help"
           />
@@ -189,7 +203,7 @@ export default function Comments({
             <button
               className="btn btn-primary"
               onClick={submit}
-              disabled={!text.trim() || posting}
+              disabled={!text.trim() || posting || !session?.user?.id}
             >
               {posting ? "Sending…" : "Send"}
             </button>

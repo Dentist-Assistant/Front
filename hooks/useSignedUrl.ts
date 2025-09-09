@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getSupabaseBrowser } from "../lib/supabaseBrowser";
 
 type Options = { expiresIn?: number; enabled?: boolean };
 type State = { url: string | null; isLoading: boolean; error: string | null };
@@ -31,61 +32,53 @@ function parseStorageSpec(raw?: string | null): { bucket?: string; key?: string 
 
 function buildAnnotatedCandidates(key: string): string[] {
   const candidates = new Set<string>();
-  const k = key.replace(/^\/+/, ""); // strip leading slashes
-
+  const k = key.replace(/^\/+/, "");
   candidates.add(k);
-
   if (!/(^|\/)annotated(\/|$)/i.test(k)) {
     candidates.add(`annotated/${k}`);
     candidates.add(k.replace(/(^|\/)(originals|normalized)(\/)/i, "$1annotated$3"));
   }
-
   return Array.from(candidates);
 }
 
 export default function useSignedUrl(path?: string | null, options?: Options) {
   const { expiresIn = 3600, enabled = true } = options ?? {};
-  const [state, setState] = useState<State>({
-    url: null,
-    isLoading: !!(enabled && path),
-    error: null,
-  });
+  const [state, setState] = useState<State>({ url: null, isLoading: !!(enabled && path), error: null });
   const [tick, setTick] = useState(0);
 
-  const sign = useCallback(async () => {
+  const run = useCallback(async (signal: AbortSignal) => {
     if (!enabled || !path?.trim()) {
       setState({ url: null, isLoading: false, error: null });
       return;
     }
-
     if (/^(https?:\/\/|data:)/i.test(path)) {
       setState({ url: path, isLoading: false, error: null });
       return;
     }
 
-    const { bucket, key } = parseStorageSpec(path);
-    const finalKey = (key ?? path).replace(/^\/+/, "");
-
-    const ac = new AbortController();
     setState((s) => ({ ...s, isLoading: true, error: null }));
 
     try {
+      const supabase = getSupabaseBrowser();
+      const { data: sess } = await supabase.auth.getSession();
+      const authHeader =
+        sess?.session?.access_token ? { Authorization: `Bearer ${sess.session.access_token}` } : undefined;
+
+      const { bucket, key } = parseStorageSpec(path);
+      const finalKey = (key ?? path).replace(/^\/+/, "");
       const keysToTry = buildAnnotatedCandidates(finalKey);
+
       let lastErr: string | null = null;
 
       for (const candidate of keysToTry) {
-        const qs = new URLSearchParams({
-          path: candidate,
-          expiresIn: String(expiresIn),
-        });
+        const qs = new URLSearchParams({ path: candidate, expiresIn: String(expiresIn) });
         if (bucket) qs.set("bucket", bucket);
 
         const res = await fetch(`/api/storage/sign?${qs.toString()}`, {
           method: "GET",
-          signal: ac.signal,
+          headers: { ...(authHeader || {}) },
+          signal,
         });
-
-        let signed: string | null = null;
 
         if (res.ok) {
           const data = (await res.json().catch(() => ({}))) as {
@@ -93,16 +86,14 @@ export default function useSignedUrl(path?: string | null, options?: Options) {
             signedUrl?: string;
             signed_url?: string;
           };
-          signed = data.signedUrl ?? data.signed_url ?? data.url ?? null;
+          const signed = data.signedUrl ?? data.signed_url ?? data.url ?? null;
+          if (signed) {
+            setState({ url: signed, isLoading: false, error: null });
+            return;
+          }
         } else {
-          // capture error but keep trying fallbacks
           const txt = await res.text().catch(() => "");
           lastErr = txt || `Failed to sign: ${candidate}`;
-        }
-
-        if (signed) {
-          setState({ url: signed, isLoading: false, error: null });
-          return () => ac.abort();
         }
       }
 
@@ -111,13 +102,13 @@ export default function useSignedUrl(path?: string | null, options?: Options) {
       if (e?.name === "AbortError") return;
       setState({ url: null, isLoading: false, error: e?.message || "Unknown error" });
     }
-
-    return () => ac.abort();
   }, [enabled, path, expiresIn]);
 
   useEffect(() => {
-    sign();
-  }, [sign, tick]);
+    const ac = new AbortController();
+    run(ac.signal);
+    return () => ac.abort();
+  }, [run, tick]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
   const clear = useCallback(() => setState({ url: null, isLoading: false, error: null }), []);

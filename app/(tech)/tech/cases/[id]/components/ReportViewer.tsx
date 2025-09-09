@@ -1,7 +1,7 @@
 // app/tech/cases/[id]/components/ReportViewer.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "../../../../../../lib/supabaseBrowser";
 
 type Props = {
@@ -21,21 +21,23 @@ export default function ReportViewer({
   bucket = DEFAULT_BUCKET,
   height = 560,
 }: Props) {
-  const supabase = getSupabaseBrowser();
+  const supabase = useMemo(() => getSupabaseBrowser(), []);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
 
-    (async () => {
+    const run = async () => {
       setLoading(true);
       setErr(null);
       setUrl(null);
 
       try {
+        await supabase.auth.getSession();
+
         if (explicitPath && /^https?:\/\//i.test(explicitPath)) {
           if (!cancelled) setUrl(explicitPath);
           return;
@@ -47,29 +49,31 @@ export default function ReportViewer({
         candidates.push(`${caseId}/v${version}.pdf`);
         candidates.push(`pdf/${caseId}/latest.pdf`);
 
-        let found: Blob | null = null;
+        let blob: Blob | null = null;
 
         for (const p of candidates) {
-          const { data, error } = await supabase.storage.from(bucket).download(p);
-          if (!error && data) {
-            found = data;
+          const { data } = await supabase.storage.from(bucket).download(p);
+          if (data) {
+            blob = data;
             break;
           }
         }
 
-        if (!found) {
-          setErr("Report not found in storage");
+        if (!blob) {
+          setErr("Report not found");
           return;
         }
 
-        objectUrl = URL.createObjectURL(found);
+        objectUrl = URL.createObjectURL(blob);
         if (!cancelled) setUrl(objectUrl);
       } catch (e: any) {
-        if (!cancelled) setErr(e?.message ?? "Failed to load report");
+        if (!cancelled) setErr(e?.message ?? "Failed to load");
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    };
+
+    run();
 
     return () => {
       cancelled = true;
@@ -83,7 +87,7 @@ export default function ReportViewer({
     return (
       <section className="card-lg flex items-center justify-center text-center" style={{ height }}>
         <div>
-          <p className="font-medium">No report PDF found</p>
+          <p className="font-medium">{err ?? "No report PDF found"}</p>
         </div>
       </section>
     );
