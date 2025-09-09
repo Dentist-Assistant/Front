@@ -9,8 +9,8 @@ import useCaseDetail from "../../../../../hooks/useCaseDetail";
 import useAuthSession from "../../../../../hooks/useAuthSession";
 
 const ReportViewer = dynamic(() => import("./components/ReportViewer"), { ssr: false });
-const ImageViewer = dynamic(() => import("./components/ImageViewer"), { ssr: false });
-const Comments = dynamic(() => import("./components/Comments"), { ssr: false });
+const ImageViewer  = dynamic(() => import("./components/ImageViewer"),  { ssr: false });
+const Comments     = dynamic(() => import("./components/Comments"),     { ssr: false });
 
 type CaseDetail = {
   case: { id: string; title?: string | null; status?: string | null; assigned_tech?: string | null } | null;
@@ -22,10 +22,11 @@ export default function TechCaseDetailPage() {
   const router = useRouter();
   const params = useParams();
   const caseId = String((params as any)?.id ?? "");
+
   const { session, isLoading: authLoading } = useAuthSession();
   const userId = session?.user?.id ?? null;
 
-  const ready = !authLoading && !!caseId;
+  const ready = !!caseId;
 
   const { data, isLoading, error, refresh } = useCaseDetail(ready ? caseId : null, { enabled: ready }) as {
     data: CaseDetail | null;
@@ -38,11 +39,16 @@ export default function TechCaseDetailPage() {
     if (ready) void refresh();
   }, [ready, refresh]);
 
+  useEffect(() => {
+    if (ready && session?.user?.id) void refresh();
+  }, [ready, session?.user?.id, refresh]);
+
   const title = data?.case?.title || "Case";
   const status = data?.case?.status || "OPEN";
   const assignedTo = data?.case?.assigned_tech ?? null;
 
-  const latestVersion = typeof data?.latestReport?.version === "number" ? data.latestReport!.version! : 1;
+  const latestVersion =
+    typeof data?.latestReport?.version === "number" ? data.latestReport!.version! : 1;
 
   const firstImage = useMemo(() => {
     return (
@@ -59,7 +65,7 @@ export default function TechCaseDetailPage() {
     return p || undefined;
   }, [data?.latestReport]);
 
-  const forbidden = !authLoading && !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
+  const forbidden = !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
 
   useEffect(() => {
     if (forbidden) router.replace("/tech/cases");
@@ -85,14 +91,14 @@ export default function TechCaseDetailPage() {
         </div>
       </header>
 
-      {(isLoading || authLoading) && (
+      {(!ready || isLoading) && (
         <div className="space-y-4">
           <div className="skeleton h-[280px] w-full" />
           <div className="skeleton h-[140px] w-full" />
         </div>
       )}
 
-      {!isLoading && !authLoading && !!error && (
+      {!isLoading && !!error && (
         <div
           role="alert"
           className="rounded-2xl border px-4 py-3 text-sm"
@@ -105,7 +111,7 @@ export default function TechCaseDetailPage() {
         </div>
       )}
 
-      {!isLoading && !authLoading && !error && forbidden && (
+      {!isLoading && !error && forbidden && (
         <div
           role="alert"
           className="rounded-2xl border px-4 py-3 text-sm"
@@ -118,7 +124,7 @@ export default function TechCaseDetailPage() {
         </div>
       )}
 
-      {!isLoading && !authLoading && !error && !forbidden && (
+      {!isLoading && !error && !forbidden && (
         <div className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
             <ReportViewer caseId={caseId} version={latestVersion} explicitPath={explicitPdfPath} />
