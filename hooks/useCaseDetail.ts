@@ -110,10 +110,15 @@ function coerceTreatmentGoal(raw: any): TreatmentGoal {
   return null;
 }
 
-export default function useCaseDetail(caseId?: string | null) {
+export default function useCaseDetail(caseId?: string | null, opts?: { enabled?: boolean }) {
+  const enabled = opts?.enabled ?? true;
   const [state, setState] = useState<State>({ data: null, isLoading: true, error: null });
 
   const fetchDetail = useCallback(async () => {
+    if (!enabled) {
+      setState((s) => ({ ...s, isLoading: false }));
+      return;
+    }
     if (!caseId) {
       setState({ data: null, isLoading: false, error: "Missing case id" });
       return;
@@ -246,15 +251,16 @@ export default function useCaseDetail(caseId?: string | null) {
       console.error("[useCaseDetail] load failed:", e);
       setState({ data: null, isLoading: false, error: e?.message ?? "Failed to load" });
     }
-  }, [caseId]);
+  }, [enabled, caseId]);
 
   useEffect(() => {
     fetchDetail();
   }, [fetchDetail]);
 
   const refresh = useCallback(async () => {
+    if (!enabled) return;
     await fetchDetail();
-  }, [fetchDetail]);
+  }, [enabled, fetchDetail]);
 
   const updateTreatmentGoalFinal = useCallback(
     async (val: TreatmentGoal | string | null) => {

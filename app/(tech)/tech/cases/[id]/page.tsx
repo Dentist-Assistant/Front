@@ -9,8 +9,8 @@ import useCaseDetail from "../../../../../hooks/useCaseDetail";
 import useAuthSession from "../../../../../hooks/useAuthSession";
 
 const ReportViewer = dynamic(() => import("./components/ReportViewer"), { ssr: false });
-const ImageViewer  = dynamic(() => import("./components/ImageViewer"),  { ssr: false });
-const Comments     = dynamic(() => import("./components/Comments"),     { ssr: false });
+const ImageViewer = dynamic(() => import("./components/ImageViewer"), { ssr: false });
+const Comments = dynamic(() => import("./components/Comments"), { ssr: false });
 
 type CaseDetail = {
   case: { id: string; title?: string | null; status?: string | null; assigned_tech?: string | null } | null;
@@ -25,12 +25,18 @@ export default function TechCaseDetailPage() {
   const { session, isLoading: authLoading } = useAuthSession();
   const userId = session?.user?.id ?? null;
 
-  const { data, isLoading, error, refresh } = useCaseDetail(caseId) as {
+  const ready = !authLoading && !!caseId;
+
+  const { data, isLoading, error, refresh } = useCaseDetail(ready ? caseId : null, { enabled: ready }) as {
     data: CaseDetail | null;
     isLoading: boolean;
     error: unknown;
     refresh: () => Promise<void>;
   };
+
+  useEffect(() => {
+    if (ready) void refresh();
+  }, [ready, refresh]);
 
   const title = data?.case?.title || "Case";
   const status = data?.case?.status || "OPEN";
@@ -87,17 +93,27 @@ export default function TechCaseDetailPage() {
       )}
 
       {!isLoading && !authLoading && !!error && (
-        <div role="alert" className="rounded-2xl border px-4 py-3 text-sm"
-             style={{ background:"color-mix(in oklab, var(--color-danger) 12%, transparent)",
-                      borderColor:"color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))" }}>
+        <div
+          role="alert"
+          className="rounded-2xl border px-4 py-3 text-sm"
+          style={{
+            background: "color-mix(in oklab, var(--color-danger) 12%, transparent)",
+            borderColor: "color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))",
+          }}
+        >
           Failed to load case
         </div>
       )}
 
       {!isLoading && !authLoading && !error && forbidden && (
-        <div role="alert" className="rounded-2xl border px-4 py-3 text-sm"
-             style={{ background:"color-mix(in oklab, var(--color-warning) 12%, transparent)",
-                      borderColor:"color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))" }}>
+        <div
+          role="alert"
+          className="rounded-2xl border px-4 py-3 text-sm"
+          style={{
+            background: "color-mix(in oklab, var(--color-warning) 12%, transparent)",
+            borderColor: "color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))",
+          }}
+        >
           You don’t have access to this case. Redirecting to your cases…
         </div>
       )}

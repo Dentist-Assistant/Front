@@ -2,12 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  Session,
-  User as SupaUser,
-  AuthChangeEvent,
-  SupabaseClient,
-} from "@supabase/supabase-js";
+import type { Session, User as SupaUser, AuthChangeEvent, SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseBrowser } from "../lib/supabaseBrowser";
 import type { Database } from "../types/db";
 
@@ -23,16 +18,11 @@ type AuthState = {
 
 function metaRoleOf(u: SupaUser | null): Role | null {
   if (!u) return null;
-  const fromApp =
-    typeof (u as any)?.app_metadata?.role === "string"
-      ? (u as any).app_metadata.role
-      : null;
-  const fromUser =
-    typeof u.user_metadata?.role === "string" ? u.user_metadata.role : null;
+  const fromApp = typeof (u as any)?.app_metadata?.role === "string" ? (u as any).app_metadata.role : null;
+  const fromUser = typeof u.user_metadata?.role === "string" ? u.user_metadata.role : null;
   const cand = (fromApp ?? fromUser)?.toLowerCase();
   if (cand === "technician") return "tech";
-  if (cand === "dentist" || cand === "tech" || cand === "admin" || cand === "user")
-    return cand as Role;
+  if (cand === "dentist" || cand === "tech" || cand === "admin" || cand === "user") return cand as Role;
   return null;
 }
 
@@ -52,20 +42,16 @@ export default function useAuthSession() {
     const meta = metaRoleOf(u);
     if (meta) return meta;
     if (!u) return null;
-
     const supabase = getClient();
     const { data: row, error } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", u.id)
       .maybeSingle<{ role: string | null }>();
-
     if (error || !row) return null;
-
     const raw = (row.role ?? "").toLowerCase();
     if (raw === "technician") return "tech";
-    if (raw === "dentist" || raw === "tech" || raw === "admin" || raw === "user")
-      return raw as Role;
+    if (raw === "dentist" || raw === "tech" || raw === "admin" || raw === "user") return raw as Role;
     return null;
   }, []);
 
@@ -91,9 +77,14 @@ export default function useAuthSession() {
     const supabase = getClient();
 
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!mounted) return;
-      await applyState(data.session ?? null);
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!mounted) return;
+        await applyState(data.session ?? null);
+      } catch {
+        if (!mounted) return;
+        setState({ status: "unauthenticated", session: null, user: null, role: null });
+      }
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange(
@@ -111,8 +102,12 @@ export default function useAuthSession() {
 
   const refresh = useCallback(async () => {
     const supabase = getClient();
-    const { data } = await supabase.auth.getSession();
-    await applyState(data.session ?? null);
+    try {
+      const { data } = await supabase.auth.getSession();
+      await applyState(data.session ?? null);
+    } catch {
+      setState({ status: "unauthenticated", session: null, user: null, role: null });
+    }
   }, [applyState]);
 
   const signOut = useCallback(async () => {
