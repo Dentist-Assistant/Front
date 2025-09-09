@@ -4,11 +4,13 @@
 import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import ImageViewer from "./components/ImageViewer";
-import Comments from "./components/Comments";
+import dynamic from "next/dynamic";
 import useCaseDetail from "../../../../../hooks/useCaseDetail";
 import useAuthSession from "../../../../../hooks/useAuthSession";
-import ReportViewer from "./components/ReportViewer";
+
+const ReportViewer = dynamic(() => import("./components/ReportViewer"), { ssr: false });
+const ImageViewer  = dynamic(() => import("./components/ImageViewer"),  { ssr: false });
+const Comments     = dynamic(() => import("./components/Comments"),     { ssr: false });
 
 type CaseDetail = {
   case: { id: string; title?: string | null; status?: string | null; assigned_tech?: string | null } | null;
@@ -20,7 +22,7 @@ export default function TechCaseDetailPage() {
   const router = useRouter();
   const params = useParams();
   const caseId = String((params as any)?.id ?? "");
-  const { session } = useAuthSession();
+  const { session, isLoading: authLoading } = useAuthSession();
   const userId = session?.user?.id ?? null;
 
   const { data, isLoading, error, refresh } = useCaseDetail(caseId) as {
@@ -51,7 +53,7 @@ export default function TechCaseDetailPage() {
     return p || undefined;
   }, [data?.latestReport]);
 
-  const forbidden = !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
+  const forbidden = !authLoading && !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
 
   useEffect(() => {
     if (forbidden) router.replace("/tech/cases");
@@ -60,9 +62,7 @@ export default function TechCaseDetailPage() {
   return (
     <div className="container-page">
       <nav aria-label="Breadcrumb" className="mb-2 text-sm">
-        <Link href="/tech/cases" className="text-[var(--color-muted)] hover:underline">
-          Cases
-        </Link>
+        <Link href="/tech/cases" className="text-[var(--color-muted)] hover:underline">Cases</Link>
         <span className="mx-2 text-[var(--color-muted)]">/</span>
         <span className="text-[var(--color-text)]">{title}</span>
         <span className="ml-2 text-[var(--color-muted)]">({caseId})</span>
@@ -79,44 +79,33 @@ export default function TechCaseDetailPage() {
         </div>
       </header>
 
-      {isLoading && (
+      {(isLoading || authLoading) && (
         <div className="space-y-4">
           <div className="skeleton h-[280px] w-full" />
           <div className="skeleton h-[140px] w-full" />
         </div>
       )}
 
-      {!isLoading && !!error && (
-        <div
-          role="alert"
-          className="rounded-2xl border px-4 py-3 text-sm"
-          style={{
-            background: "color-mix(in oklab, var(--color-danger) 12%, transparent)",
-            borderColor: "color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))",
-          }}
-        >
+      {!isLoading && !authLoading && !!error && (
+        <div role="alert" className="rounded-2xl border px-4 py-3 text-sm"
+             style={{ background:"color-mix(in oklab, var(--color-danger) 12%, transparent)",
+                      borderColor:"color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))" }}>
           Failed to load case
         </div>
       )}
 
-      {!isLoading && !error && forbidden && (
-        <div
-          role="alert"
-          className="rounded-2xl border px-4 py-3 text-sm"
-          style={{
-            background: "color-mix(in oklab, var(--color-warning) 12%, transparent)",
-            borderColor: "color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))",
-          }}
-        >
+      {!isLoading && !authLoading && !error && forbidden && (
+        <div role="alert" className="rounded-2xl border px-4 py-3 text-sm"
+             style={{ background:"color-mix(in oklab, var(--color-warning) 12%, transparent)",
+                      borderColor:"color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))" }}>
           You don’t have access to this case. Redirecting to your cases…
         </div>
       )}
 
-      {!isLoading && !error && !forbidden && (
+      {!isLoading && !authLoading && !error && !forbidden && (
         <div className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
             <ReportViewer caseId={caseId} version={latestVersion} explicitPath={explicitPdfPath} />
-
             <div className="space-y-6">
               <ImageViewer path={firstImage} caption="Shared image" />
               <section className="card-lg">
@@ -129,7 +118,6 @@ export default function TechCaseDetailPage() {
               </section>
             </div>
           </div>
-
           <Comments caseId={caseId} targetVersion={latestVersion} canPost onPosted={refresh} />
         </div>
       )}
