@@ -27,8 +27,11 @@ export default function TechCaseDetailPage() {
   const userId = session?.user?.id ?? null;
 
   const ready = !!caseId;
+  const authReady = !authLoading; 
 
-  const { data, isLoading, error, refresh } = useCaseDetail(ready ? caseId : null, { enabled: ready }) as {
+  const { data, isLoading, error, refresh } = useCaseDetail(ready ? caseId : null, {
+    enabled: ready && authReady, 
+  }) as {
     data: CaseDetail | null;
     isLoading: boolean;
     error: unknown;
@@ -36,12 +39,12 @@ export default function TechCaseDetailPage() {
   };
 
   useEffect(() => {
-    if (ready) void refresh();
-  }, [ready, refresh]);
+    if (ready && authReady) void refresh(); 
+  }, [ready, authReady, refresh]);
 
   useEffect(() => {
-    if (ready && session?.user?.id) void refresh();
-  }, [ready, session?.user?.id, refresh]);
+    if (ready && authReady && session?.user?.id) void refresh();
+  }, [ready, authReady, session?.user?.id, refresh]);
 
   const title = data?.case?.title || "Case";
   const status = data?.case?.status || "OPEN";
@@ -65,11 +68,13 @@ export default function TechCaseDetailPage() {
     return p || undefined;
   }, [data?.latestReport]);
 
-  const forbidden = !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
+  const forbidden = !isLoading && !error && authReady && !!userId && !!assignedTo && assignedTo !== userId; // 👈 clave
 
   useEffect(() => {
     if (forbidden) router.replace("/tech/cases");
   }, [forbidden, router]);
+
+  const authKey = session?.access_token ?? "no-auth";
 
   return (
     <div className="container-page">
@@ -91,14 +96,14 @@ export default function TechCaseDetailPage() {
         </div>
       </header>
 
-      {(!ready || isLoading) && (
+      {(!ready || !authReady || isLoading) && ( 
         <div className="space-y-4">
           <div className="skeleton h-[280px] w-full" />
           <div className="skeleton h-[140px] w-full" />
         </div>
       )}
 
-      {!isLoading && !!error && (
+      {!isLoading && !!error && authReady && (
         <div
           role="alert"
           className="rounded-2xl border px-4 py-3 text-sm"
@@ -124,12 +129,21 @@ export default function TechCaseDetailPage() {
         </div>
       )}
 
-      {!isLoading && !error && !forbidden && (
+      {!isLoading && !error && !forbidden && authReady && (
         <div className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
-            <ReportViewer caseId={caseId} version={latestVersion} explicitPath={explicitPdfPath} />
+            <ReportViewer
+              key={`rv:${caseId}:${latestVersion}:${authKey}`} 
+              caseId={caseId}
+              version={latestVersion}
+              explicitPath={explicitPdfPath}
+            />
             <div className="space-y-6">
-              <ImageViewer path={firstImage} caption="Shared image" />
+              <ImageViewer
+                key={`iv:${firstImage}:${authKey}`} 
+                path={firstImage}
+                caption="Shared image"
+              />
               <section className="card-lg">
                 <h2 className="mb-2 text-base font-semibold">Instructions</h2>
                 <ul className="list-inside list-disc text-sm text-[var(--color-text)]/90">
@@ -140,7 +154,13 @@ export default function TechCaseDetailPage() {
               </section>
             </div>
           </div>
-          <Comments caseId={caseId} targetVersion={latestVersion} canPost onPosted={refresh} />
+          <Comments
+            key={`cm:${caseId}:${latestVersion}:${authKey}`}
+            caseId={caseId}
+            targetVersion={latestVersion}
+            canPost
+            onPosted={refresh}
+          />
         </div>
       )}
     </div>
