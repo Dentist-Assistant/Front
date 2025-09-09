@@ -75,21 +75,14 @@ export default function useAuthSession() {
     let mounted = true;
     const supabase = getClient();
 
-    let settled = false;
-    const watchdog = setTimeout(() => {
-      if (!mounted || settled) return;
-      settled = true;
-      setState({ status: "unauthenticated", session: null, user: null, role: null });
-    }, 1500);
-
     (async () => {
       try {
         const { data } = await supabase.auth.getSession();
         if (!mounted) return;
         await applyState(data.session ?? null);
-      } finally {
-        settled = true;
-        clearTimeout(watchdog);
+      } catch {
+        if (!mounted) return;
+        setState({ status: "unauthenticated", session: null, user: null, role: null });
       }
     })();
 
@@ -103,7 +96,6 @@ export default function useAuthSession() {
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
-      clearTimeout(watchdog);
     };
   }, [applyState]);
 

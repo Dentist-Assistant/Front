@@ -1,27 +1,32 @@
 // lib/supabaseBrowser.ts
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+"use client";
+
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../types/db";
 
 let singleton: SupabaseClient<Database> | null = null;
 
-function getEnv() {
+export function getSupabaseBrowser(): SupabaseClient<Database> {
+  if (singleton) return singleton;
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-  if (!key) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
-  return { url, key };
-}
+  if (!url || !key) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
 
-export function getSupabaseBrowser(): SupabaseClient<Database> {
-  if (typeof window === "undefined") {
-    throw new Error("getSupabaseBrowser must be called in the browser");
-  }
-  if (!singleton) {
-    const { url, key } = getEnv();
-    singleton = createClient<Database>(url, key, {
-      auth: { persistSession: true, autoRefreshToken: true },
-      global: { headers: { "X-Client-Info": "dentistfront-browser" } },
-    });
-  }
+  singleton = createClient<Database>(url, key, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      flowType: "pkce",
+      storage: typeof window !== "undefined" ? window.localStorage : undefined,
+    },
+    global: {
+      headers: { "X-Client-Info": "dentistfront-browser" },
+    },
+  });
+
   return singleton;
 }

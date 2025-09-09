@@ -9,8 +9,8 @@ import useCaseDetail from "../../../../../hooks/useCaseDetail";
 import useAuthSession from "../../../../../hooks/useAuthSession";
 
 const ReportViewer = dynamic(() => import("./components/ReportViewer"), { ssr: false });
-const ImageViewer  = dynamic(() => import("./components/ImageViewer"),  { ssr: false });
-const Comments     = dynamic(() => import("./components/Comments"),     { ssr: false });
+const ImageViewer = dynamic(() => import("./components/ImageViewer"), { ssr: false });
+const Comments = dynamic(() => import("./components/Comments"), { ssr: false });
 
 type CaseDetail = {
   case: { id: string; title?: string | null; status?: string | null; assigned_tech?: string | null } | null;
@@ -26,11 +26,10 @@ export default function TechCaseDetailPage() {
   const { session, isLoading: authLoading } = useAuthSession();
   const userId = session?.user?.id ?? null;
 
-  const ready = !!caseId;
-  const authReady = !authLoading; 
+  const enabled = !!caseId && !authLoading && !!session?.user?.id;
 
-  const { data, isLoading, error, refresh } = useCaseDetail(ready ? caseId : null, {
-    enabled: ready && authReady, 
+  const { data, isLoading, error, refresh } = useCaseDetail(enabled ? caseId : null, {
+    enabled,
   }) as {
     data: CaseDetail | null;
     isLoading: boolean;
@@ -38,20 +37,11 @@ export default function TechCaseDetailPage() {
     refresh: () => Promise<void>;
   };
 
-  useEffect(() => {
-    if (ready && authReady) void refresh(); 
-  }, [ready, authReady, refresh]);
-
-  useEffect(() => {
-    if (ready && authReady && session?.user?.id) void refresh();
-  }, [ready, authReady, session?.user?.id, refresh]);
-
   const title = data?.case?.title || "Case";
   const status = data?.case?.status || "OPEN";
   const assignedTo = data?.case?.assigned_tech ?? null;
 
-  const latestVersion =
-    typeof data?.latestReport?.version === "number" ? data.latestReport!.version! : 1;
+  const latestVersion = typeof data?.latestReport?.version === "number" ? data.latestReport!.version! : 1;
 
   const firstImage = useMemo(() => {
     return (
@@ -68,7 +58,7 @@ export default function TechCaseDetailPage() {
     return p || undefined;
   }, [data?.latestReport]);
 
-  const forbidden = !isLoading && !error && authReady && !!userId && !!assignedTo && assignedTo !== userId; // 👈 clave
+  const forbidden = enabled && !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
 
   useEffect(() => {
     if (forbidden) router.replace("/tech/cases");
@@ -96,14 +86,14 @@ export default function TechCaseDetailPage() {
         </div>
       </header>
 
-      {(!ready || !authReady || isLoading) && ( 
+      {(!enabled || isLoading) && (
         <div className="space-y-4">
           <div className="skeleton h-[280px] w-full" />
           <div className="skeleton h-[140px] w-full" />
         </div>
       )}
 
-      {!isLoading && !!error && authReady && (
+      {!isLoading && !!error && enabled && (
         <div
           role="alert"
           className="rounded-2xl border px-4 py-3 text-sm"
@@ -129,18 +119,18 @@ export default function TechCaseDetailPage() {
         </div>
       )}
 
-      {!isLoading && !error && !forbidden && authReady && (
+      {!isLoading && !error && !forbidden && enabled && (
         <div className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
             <ReportViewer
-              key={`rv:${caseId}:${latestVersion}:${authKey}`} 
+              key={`rv:${caseId}:${latestVersion}:${authKey}`}
               caseId={caseId}
               version={latestVersion}
               explicitPath={explicitPdfPath}
             />
             <div className="space-y-6">
               <ImageViewer
-                key={`iv:${firstImage}:${authKey}`} 
+                key={`iv:${firstImage}:${authKey}`}
                 path={firstImage}
                 caption="Shared image"
               />
