@@ -1,16 +1,16 @@
 // app/tech/cases/[id]/page.tsx
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import useCaseDetail from "../../../../../hooks/useCaseDetail";
 import useAuthSession from "../../../../../hooks/useAuthSession";
 
 const ReportViewer = dynamic(() => import("./components/ReportViewer"), { ssr: false });
-const ImageViewer = dynamic(() => import("./components/ImageViewer"), { ssr: false });
-const Comments = dynamic(() => import("./components/Comments"), { ssr: false });
+const ImageViewer  = dynamic(() => import("./components/ImageViewer"),  { ssr: false });
+const Comments     = dynamic(() => import("./components/Comments"),     { ssr: false });
 
 type CaseDetail = {
   case: { id: string; title?: string | null; status?: string | null; assigned_tech?: string | null } | null;
@@ -19,18 +19,15 @@ type CaseDetail = {
 };
 
 export default function TechCaseDetailPage() {
-  const router = useRouter();
   const params = useParams();
   const caseId = String((params as any)?.id ?? "");
 
-  const { session, isLoading: authLoading } = useAuthSession();
+  const { session } = useAuthSession();
   const userId = session?.user?.id ?? null;
 
-  const enabled = !!caseId && !authLoading && !!session?.user?.id;
+  const enabled = !!caseId;
 
-  const { data, isLoading, error, refresh } = useCaseDetail(enabled ? caseId : null, {
-    enabled,
-  }) as {
+  const { data, isLoading, error, refresh } = useCaseDetail(enabled ? caseId : null, { enabled }) as {
     data: CaseDetail | null;
     isLoading: boolean;
     error: unknown;
@@ -58,13 +55,7 @@ export default function TechCaseDetailPage() {
     return p || undefined;
   }, [data?.latestReport]);
 
-  const forbidden = enabled && !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
-
-  useEffect(() => {
-    if (forbidden) router.replace("/tech/cases");
-  }, [forbidden, router]);
-
-  const authKey = session?.access_token ?? "no-auth";
+  const forbidden = !isLoading && !error && !!userId && !!assignedTo && assignedTo !== userId;
 
   return (
     <div className="container-page">
@@ -86,17 +77,10 @@ export default function TechCaseDetailPage() {
         </div>
       </header>
 
-      {(!enabled || isLoading) && (
-        <div className="space-y-4">
-          <div className="skeleton h-[280px] w-full" />
-          <div className="skeleton h-[140px] w-full" />
-        </div>
-      )}
-
-      {!isLoading && !!error && enabled && (
+      {!!error && (
         <div
           role="alert"
-          className="rounded-2xl border px-4 py-3 text-sm"
+          className="mb-4 rounded-2xl border px-4 py-3 text-sm"
           style={{
             background: "color-mix(in oklab, var(--color-danger) 12%, transparent)",
             borderColor: "color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))",
@@ -106,10 +90,10 @@ export default function TechCaseDetailPage() {
         </div>
       )}
 
-      {!isLoading && !error && forbidden && (
+      {!error && forbidden && (
         <div
           role="alert"
-          className="rounded-2xl border px-4 py-3 text-sm"
+          className="mb-4 rounded-2xl border px-4 py-3 text-sm"
           style={{
             background: "color-mix(in oklab, var(--color-warning) 12%, transparent)",
             borderColor: "color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))",
@@ -119,40 +103,56 @@ export default function TechCaseDetailPage() {
         </div>
       )}
 
-      {!isLoading && !error && !forbidden && enabled && (
-        <div className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-2">
+      <div className="space-y-6">
+        <div className="grid gap-6 lg:grid-cols-2">
+          {isLoading ? (
+            <div className="skeleton h-[280px] w-full" />
+          ) : (
             <ReportViewer
-              key={`rv:${caseId}:${latestVersion}:${authKey}`}
+              key={`rv:${caseId}:${latestVersion}`}
               caseId={caseId}
               version={latestVersion}
               explicitPath={explicitPdfPath}
             />
-            <div className="space-y-6">
+          )}
+
+          <div className="space-y-6">
+            {isLoading ? (
+              <div className="skeleton h-[200px] w-full" />
+            ) : (
               <ImageViewer
-                key={`iv:${firstImage}:${authKey}`}
+                key={`iv:${caseId}:${firstImage || "none"}`}
                 path={firstImage}
                 caption="Shared image"
               />
-              <section className="card-lg">
-                <h2 className="mb-2 text-base font-semibold">Instructions</h2>
-                <ul className="list-inside list-disc text-sm text-[var(--color-text)]/90">
-                  <li>Review the shared image and the latest report version.</li>
-                  <li>Leave concise, actionable feedback for the dentist.</li>
-                  <li>Focus on clarity, missing details, and measurable suggestions.</li>
-                </ul>
-              </section>
-            </div>
+            )}
+
+            <section className="card-lg">
+              <h2 className="mb-2 text-base font-semibold">Instructions</h2>
+              <ul className="list-inside list-disc text-sm text-[var(--color-text)]/90">
+                <li>Review the shared image and the latest report version.</li>
+                <li>Leave concise, actionable feedback for the dentist.</li>
+                <li>Focus on clarity, missing details, and measurable suggestions.</li>
+              </ul>
+            </section>
           </div>
-          <Comments
-            key={`cm:${caseId}:${latestVersion}:${authKey}`}
-            caseId={caseId}
-            targetVersion={latestVersion}
-            canPost
-            onPosted={refresh}
-          />
         </div>
-      )}
+
+        {isLoading ? (
+          <div className="skeleton h-[120px] w-full" />
+        ) : (
+          !error &&
+          !forbidden && (
+            <Comments
+              key={`cm:${caseId}:${latestVersion}`}
+              caseId={caseId}
+              targetVersion={latestVersion}
+              canPost={!!session?.user?.id}
+              onPosted={refresh}
+            />
+          )
+        )}
+      </div>
     </div>
   );
 }

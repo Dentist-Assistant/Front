@@ -12,100 +12,68 @@ export type CaseDetail = {
   latestReport: LatestReport | null;
 };
 
-type State = {
-  data: CaseDetail | null;
-  isLoading: boolean;
-  error: string | null;
-};
+type State = { data: CaseDetail | null; isLoading: boolean; error: string | null };
 
 type TreatmentGoal =
-  | {
-      summary?: string;
-      goals?: string[];
-      duration_months?: number | null;
-      notes?: string;
-    }
+  | { summary?: string; goals?: string[]; duration_months?: number | null; notes?: string }
   | null;
 
 type CaseRow = { id: string; title: string | null; status: string | null; assigned_tech: string | null };
 type ImageRow = { storage_path: string; is_original: boolean | null; created_at: string | null };
 type ReportRow = { version: number | null; payload: any | null; narrative: string | null };
 
-function toNumber(v: unknown, def = 0): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : def;
-}
-function asString(v: unknown): string {
-  return typeof v === "string" ? v : "";
-}
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const HDRS = { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` };
+
+function toNumber(v: unknown, def = 0) { const n = Number(v); return Number.isFinite(n) ? n : def; }
+function asString(v: unknown) { return typeof v === "string" ? v : ""; }
+
 function normalizeGeometry(g: any) {
   if (!g || typeof g !== "object") return null;
   const out: any = {};
   if (Array.isArray(g?.circles)) {
-    out.circles = g.circles
-      .map((c: any) => ({
-        cx: toNumber(c?.cx),
-        cy: toNumber(c?.cy),
-        r: toNumber(c?.r),
-        norm: Boolean(c?.norm),
-      }))
-      .filter((c: any) => Number.isFinite(c.cx) && Number.isFinite(c.cy) && Number.isFinite(c.r));
+    out.circles = g.circles.map((c: any) => ({
+      cx: toNumber(c?.cx), cy: toNumber(c?.cy), r: toNumber(c?.r), norm: !!c?.norm,
+    })).filter((c: any) => Number.isFinite(c.cx) && Number.isFinite(c.cy) && Number.isFinite(c.r));
   }
   if (Array.isArray(g?.lines)) {
-    out.lines = g.lines
-      .map((l: any) => ({
-        x1: toNumber(l?.x1),
-        y1: toNumber(l?.y1),
-        x2: toNumber(l?.x2),
-        y2: toNumber(l?.y2),
-        norm: Boolean(l?.norm),
-      }))
-      .filter((l: any) => Number.isFinite(l.x1) && Number.isFinite(l.y1) && Number.isFinite(l.x2) && Number.isFinite(l.y2));
+    out.lines = g.lines.map((l: any) => ({
+      x1: toNumber(l?.x1), y1: toNumber(l?.y1), x2: toNumber(l?.x2), y2: toNumber(l?.y2), norm: !!l?.norm,
+    })).filter((l: any) => [l.x1,l.y1,l.x2,l.y2].every(Number.isFinite));
   }
   if (Array.isArray(g?.polygons)) {
-    out.polygons = g.polygons
-      .map((p: any) => ({
-        points: Array.isArray(p?.points)
-          ? p.points
-              .map((pt: any) => ({ x: toNumber(pt?.x), y: toNumber(pt?.y), norm: Boolean(pt?.norm) }))
-              .filter((pt: any) => Number.isFinite(pt.x) && Number.isFinite(pt.y))
-          : [],
-        norm: Boolean(p?.norm),
-      }))
-      .filter((p: any) => p.points.length >= 2);
+    out.polygons = g.polygons.map((p: any) => ({
+      points: Array.isArray(p?.points)
+        ? p.points.map((pt: any) => ({ x: toNumber(pt?.x), y: toNumber(pt?.y), norm: !!pt?.norm }))
+                .filter((pt: any) => Number.isFinite(pt.x) && Number.isFinite(pt.y))
+        : [],
+      norm: !!p?.norm,
+    })).filter((p: any) => p.points.length >= 2);
   }
   if (Array.isArray(g?.boxes)) {
-    out.boxes = g.boxes
-      .map((b: any) => ({
-        x: toNumber(b?.x),
-        y: toNumber(b?.y),
-        w: toNumber(b?.w),
-        h: toNumber(b?.h),
-        norm: Boolean(b?.norm),
-      }))
-      .filter((b: any) => Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.w) && Number.isFinite(b.h));
+    out.boxes = g.boxes.map((b: any) => ({
+      x: toNumber(b?.x), y: toNumber(b?.y), w: toNumber(b?.w), h: toNumber(b?.h), norm: !!b?.norm,
+    })).filter((b: any) => [b.x,b.y,b.w,b.h].every(Number.isFinite));
   }
   return Object.keys(out).length ? out : null;
 }
+
 function coerceTreatmentGoal(raw: any): TreatmentGoal {
   if (raw == null) return null;
   if (typeof raw === "string") {
-    const s = raw.trim();
-    if (!s) return null;
-    return { summary: s };
+    const s = raw.trim(); return s ? { summary: s } : null;
   }
   if (typeof raw === "object") {
     const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : undefined;
     const goals = Array.isArray(raw.goals) ? raw.goals.map((g: any) => String(g || "").trim()).filter(Boolean) : undefined;
     const duration_months =
-      raw.duration_months === null
-        ? null
-        : Number.isFinite(Number(raw.duration_months))
-        ? Number(raw.duration_months)
-        : undefined;
+      raw.duration_months === null ? null :
+      Number.isFinite(Number(raw.duration_months)) ? Number(raw.duration_months) : undefined;
     const notes = typeof raw.notes === "string" && raw.notes.trim() ? raw.notes.trim() : undefined;
-    if (!summary && (!goals || goals.length === 0) && duration_months === undefined && !notes) return null;
-    return { summary, goals, duration_months, notes };
+    return !summary && (!goals || goals.length === 0) && duration_months === undefined && !notes
+      ? null
+      : { summary, goals, duration_months, notes };
   }
   return null;
 }
@@ -115,38 +83,26 @@ export default function useCaseDetail(caseId?: string | null, opts?: { enabled?:
   const [state, setState] = useState<State>({ data: null, isLoading: true, error: null });
 
   const fetchDetail = useCallback(async () => {
-    if (!enabled) {
-      setState((s) => ({ ...s, isLoading: false }));
-      return;
-    }
-    if (!caseId) {
-      setState({ data: null, isLoading: false, error: "Missing case id" });
-      return;
-    }
+    if (!enabled) { setState(s => ({ ...s, isLoading: false })); return; }
+    if (!caseId) { setState({ data: null, isLoading: false, error: "Missing case id" }); return; }
 
-    setState((s) => ({ ...s, isLoading: true, error: null }));
-
+    setState(s => ({ ...s, isLoading: true, error: null }));
     try {
-      const supabase = getSupabaseBrowser();
-      await supabase.auth.getSession();
+      const caseRes = await fetch(
+        `${SUPA_URL}/rest/v1/cases?select=id,title,status,assigned_tech&id=eq.${caseId}`,
+        { headers: HDRS }
+      );
+      if (!caseRes.ok) throw new Error(await caseRes.text());
+      const caseRows = (await caseRes.json()) as CaseRow[];
+      const caseRow = caseRows[0];
+      if (!caseRow) throw new Error("Case not found");
 
-      const { data: caseData, error: caseErr } = await supabase
-        .from("cases")
-        .select("id,title,status,assigned_tech")
-        .eq("id", caseId)
-        .single();
-
-      if (caseErr || !caseData) throw new Error(caseErr?.message ?? "Case not found");
-      const caseRow = caseData as CaseRow;
-
-      const { data: imagesData, error: imgErr } = await supabase
-        .from("case_images")
-        .select("storage_path,is_original,created_at")
-        .eq("case_id", caseId)
-        .order("created_at", { ascending: true });
-
-      if (imgErr) throw new Error(imgErr.message);
-      const imagesRows = (imagesData ?? []) as ImageRow[];
+      const imgRes = await fetch(
+        `${SUPA_URL}/rest/v1/case_images?select=storage_path,is_original,created_at&case_id=eq.${caseId}&order=created_at.asc`,
+        { headers: HDRS }
+      );
+      if (!imgRes.ok) throw new Error(await imgRes.text());
+      const imagesRows = (await imgRes.json()) as ImageRow[];
       const imagesSorted: CaseImage[] = imagesRows
         .slice()
         .sort(
@@ -155,53 +111,38 @@ export default function useCaseDetail(caseId?: string | null, opts?: { enabled?:
             new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
         );
 
-      const { data: repData, error: repErr } = await supabase
-        .from("reports")
-        .select("version,payload,narrative")
-        .eq("case_id", caseId)
-        .order("version", { ascending: false })
-        .limit(1);
-
-      if (repErr) throw new Error(repErr.message);
-      const reportRows = (repData ?? []) as ReportRow[];
-      const latest: ReportRow | null = reportRows.length ? reportRows[0] : null;
+      const repRes = await fetch(
+        `${SUPA_URL}/rest/v1/reports?select=version,payload,narrative&case_id=eq.${caseId}&order=version.desc&limit=1`,
+        { headers: HDRS }
+      );
+      if (!repRes.ok) throw new Error(await repRes.text());
+      const reportRows = (await repRes.json()) as ReportRow[];
+      const latest = reportRows.length ? reportRows[0] : null;
 
       const manifest = imagesSorted.map((row, i) => ({ index: i, id: row.storage_path, path: row.storage_path }));
-      const indexById = new Map<string, number>();
-      manifest.forEach((m) => indexById.set(m.id, m.index));
+      const indexById = new Map<string, number>(); manifest.forEach(m => indexById.set(m.id, m.index));
 
       const p: any = (latest?.payload ?? {}) as any;
       const summary = typeof p.summary === "string" && p.summary.trim() ? p.summary : latest?.narrative ?? null;
       const measurements = typeof p.measurements === "object" && p.measurements ? p.measurements : {};
       const occlusion = typeof p.occlusion === "object" && p.occlusion ? p.occlusion : {};
       const hygiene = typeof p.hygiene === "object" && p.hygiene ? p.hygiene : {};
-      const recommendations = Array.isArray(p.recommendations)
-        ? p.recommendations.map((x: any) => asString(x)).filter(Boolean)
-        : [];
-      const treatment_goal_final = coerceTreatmentGoal(
-        p.treatment_goal_final ?? p.final_treatment_goal ?? p.treatment_goal
-      );
+      const recommendations = Array.isArray(p.recommendations) ? p.recommendations.map((x: any) => asString(x)).filter(Boolean) : [];
+      const treatment_goal_final = coerceTreatmentGoal(p.treatment_goal_final ?? p.final_treatment_goal ?? p.treatment_goal);
 
       const findingsRaw: any[] = Array.isArray(p.findings) ? p.findings : [];
       const findings = findingsRaw.map((f) => {
         const tooth_fdi = toNumber(f?.tooth_fdi ?? f?.tooth ?? 0);
-        const texts = Array.isArray(f?.findings)
-          ? f.findings.map((t: any) => asString(t)).filter(Boolean)
-          : asString(f?.note)
-          ? [asString(f?.note)]
-          : [];
+        const texts = Array.isArray(f?.findings) ? f.findings.map((t: any) => asString(t)).filter(Boolean)
+          : asString(f?.note) ? [asString(f?.note)] : [];
         const image_index =
-          Number.isInteger(f?.image_index) && f?.image_index >= 0
-            ? Number(f.image_index)
-            : typeof f?.image_id === "string" && f.image_id
-            ? indexById.get(f.image_id) ?? null
-            : null;
+          Number.isInteger(f?.image_index) && f?.image_index >= 0 ? Number(f.image_index)
+            : typeof f?.image_id === "string" && f.image_id ? indexById.get(f.image_id) ?? null : null;
         const image_id =
-          typeof f?.image_id === "string" && f.image_id
-            ? f.image_id
+          typeof f?.image_id === "string" && f.image_id ? f.image_id
             : Number.isInteger(image_index) && image_index! >= 0 && image_index! < imagesSorted.length
-            ? imagesSorted[image_index!].storage_path
-            : null;
+              ? imagesSorted[image_index!].storage_path
+              : null;
         return {
           tooth_fdi,
           findings: texts,
@@ -216,34 +157,15 @@ export default function useCaseDetail(caseId?: string | null, opts?: { enabled?:
       const rebuttal = p?.rebuttal && typeof p.rebuttal === "object" ? p.rebuttal : undefined;
 
       const normalizedPayload = {
-        summary,
-        measurements,
-        occlusion,
-        hygiene,
-        recommendations,
-        treatment_goal_final,
-        findings,
-        images: manifest,
-        rebuttal,
-        _meta: { ...(p?._meta || {}) },
+        summary, measurements, occlusion, hygiene, recommendations, treatment_goal_final,
+        findings, images: manifest, rebuttal, _meta: { ...(p?._meta || {}) },
       };
 
       setState({
         data: {
-          case: {
-            id: String(caseRow.id),
-            title: caseRow.title ?? null,
-            status: caseRow.status ?? null,
-            assigned_tech: caseRow.assigned_tech ?? null,
-          },
+          case: { id: String(caseRow.id), title: caseRow.title ?? null, status: caseRow.status ?? null, assigned_tech: caseRow.assigned_tech ?? null },
           images: imagesSorted,
-          latestReport: latest
-            ? {
-                version: Number(latest.version ?? 0),
-                payload: normalizedPayload,
-                narrative: latest.narrative ?? null,
-              }
-            : null,
+          latestReport: latest ? { version: Number(latest.version ?? 0), payload: normalizedPayload, narrative: latest.narrative ?? null } : null,
         },
         isLoading: false,
         error: null,
@@ -254,42 +176,30 @@ export default function useCaseDetail(caseId?: string | null, opts?: { enabled?:
     }
   }, [enabled, caseId]);
 
-  useEffect(() => {
-    fetchDetail();
-  }, [fetchDetail]);
+  useEffect(() => { fetchDetail(); }, [fetchDetail]);
 
-  const refresh = useCallback(async () => {
-    if (!enabled) return;
-    await fetchDetail();
-  }, [enabled, fetchDetail]);
+  const refresh = useCallback(async () => { if (!enabled) return; await fetchDetail(); }, [enabled, fetchDetail]);
 
   const updateTreatmentGoalFinal = useCallback(
     async (val: TreatmentGoal | string | null) => {
       if (!caseId) throw new Error("Missing case id");
       const supabase = getSupabaseBrowser();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Unauthorized");
 
       let next: TreatmentGoal = null;
       if (typeof val === "string") {
-        const s = val.trim();
-        next = s ? { summary: s } : null;
+        const s = val.trim(); next = s ? { summary: s } : null;
       } else if (val && typeof val === "object") {
         const summary = typeof val.summary === "string" && val.summary.trim() ? val.summary.trim() : undefined;
         const goals = Array.isArray(val.goals) ? val.goals.map((g) => String(g || "").trim()).filter(Boolean) : undefined;
         const duration_months =
-          val.duration_months === null
-            ? null
-            : Number.isFinite(Number(val.duration_months))
-            ? Number(val.duration_months)
-            : undefined;
+          val.duration_months === null ? null :
+          Number.isFinite(Number(val.duration_months)) ? Number(val.duration_months) : undefined;
         const notes = typeof val.notes === "string" && val.notes.trim() ? val.notes.trim() : undefined;
-        next =
-          !summary && (!goals || goals.length === 0) && duration_months === undefined && !notes
-            ? null
-            : { summary, goals, duration_months, notes };
+        next = !summary && (!goals || goals.length === 0) && duration_months === undefined && !notes
+          ? null
+          : { summary, goals, duration_months, notes };
       } else {
         next = null;
       }

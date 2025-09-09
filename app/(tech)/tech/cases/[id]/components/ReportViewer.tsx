@@ -1,8 +1,7 @@
 // app/tech/cases/[id]/components/ReportViewer.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { getSupabaseBrowser } from "../../../../../../lib/supabaseBrowser";
+import { useEffect, useState } from "react";
 
 type Props = {
   caseId: string;
@@ -21,25 +20,20 @@ export default function ReportViewer({
   bucket = DEFAULT_BUCKET,
   height = 560,
 }: Props) {
-  const supabase = useMemo(() => getSupabaseBrowser(), []);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    let objectUrl: string | null = null;
+    setLoading(true);
+    setErr(null);
+    setUrl(null);
 
-    const run = async () => {
-      setLoading(true);
-      setErr(null);
-      setUrl(null);
-
+    (async () => {
       try {
-        await supabase.auth.getSession();
-
         if (explicitPath && /^https?:\/\//i.test(explicitPath)) {
-          if (!cancelled) setUrl(explicitPath);
+          if (!cancelled) { setUrl(explicitPath); setLoading(false); }
           return;
         }
 
@@ -49,46 +43,33 @@ export default function ReportViewer({
         candidates.push(`${caseId}/v${version}.pdf`);
         candidates.push(`pdf/${caseId}/latest.pdf`);
 
-        let blob: Blob | null = null;
-
         for (const p of candidates) {
-          const { data } = await supabase.storage.from(bucket).download(p);
-          if (data) {
-            blob = data;
-            break;
+          const qs = new URLSearchParams({ path: p, bucket });
+          const res = await fetch(`/api/storage/sign?${qs.toString()}`, { method: "GET" });
+          if (!res.ok) continue;
+          const j = await res.json().catch(() => ({}));
+          const signed = j.signedUrl ?? j.signed_url ?? j.url ?? null;
+          if (signed) {
+            if (!cancelled) { setUrl(signed); setLoading(false); }
+            return;
           }
         }
 
-        if (!blob) {
-          setErr("Report not found");
-          return;
-        }
-
-        objectUrl = URL.createObjectURL(blob);
-        if (!cancelled) setUrl(objectUrl);
+        if (!cancelled) { setErr("Report not found"); setLoading(false); }
       } catch (e: any) {
-        if (!cancelled) setErr(e?.message ?? "Failed to load");
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) { setErr(e?.message ?? "Failed to load"); setLoading(false); }
       }
-    };
+    })();
 
-    run();
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [bucket, caseId, version, explicitPath, supabase]);
+    return () => { cancelled = true; };
+  }, [bucket, caseId, version, explicitPath]);
 
   if (loading) return <div className="skeleton w-full rounded-2xl" style={{ height }} />;
 
   if (!url)
     return (
       <section className="card-lg flex items-center justify-center text-center" style={{ height }}>
-        <div>
-          <p className="font-medium">{err ?? "No report PDF found"}</p>
-        </div>
+        <div><p className="font-medium">{err ?? "No report PDF found"}</p></div>
       </section>
     );
 

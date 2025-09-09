@@ -14,6 +14,10 @@ type CommentRow = {
   created_at: string;
 };
 
+const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const HDRS = { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` };
+
 export default function Comments({
   caseId,
   targetVersion,
@@ -26,7 +30,7 @@ export default function Comments({
   onPosted?: () => void | Promise<void>;
 }) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
-  const { session, isLoading: authLoading } = useAuthSession();
+  const { session } = useAuthSession();
 
   const [items, setItems] = useState<CommentRow[]>([]);
   const [text, setText] = useState("");
@@ -36,38 +40,26 @@ export default function Comments({
   const [postError, setPostError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (authLoading) return;
-    const ac = new AbortController();
     let cancelled = false;
-
     (async () => {
       setLoading(true);
       setLoadError(null);
       try {
-        await supabase.auth.getSession();
-        const { data, error } = await supabase
-          .from("review_comments")
-          .select("*")
-          .eq("case_id", caseId)
-          .order("created_at", { ascending: false })
-          .limit(100);
-        if (cancelled || ac.signal.aborted) return;
-        if (error) {
-          setLoadError(error.message || "Failed to load comments");
-          setItems([]);
-        } else if (Array.isArray(data)) {
-          setItems(data as CommentRow[]);
-        }
+        const res = await fetch(
+          `${SUPA_URL}/rest/v1/review_comments?select=*&case_id=eq.${caseId}&order=created_at.desc&limit=100`,
+          { headers: HDRS }
+        );
+        if (!res.ok) throw new Error(await res.text());
+        const rows = (await res.json()) as CommentRow[];
+        if (!cancelled) setItems(rows);
+      } catch (e: any) {
+        if (!cancelled) setLoadError(e?.message || "Failed to load comments");
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-
-    return () => {
-      cancelled = true;
-      ac.abort();
-    };
-  }, [caseId, authLoading, supabase]);
+    return () => { cancelled = true; };
+  }, [caseId]);
 
   const submit = async () => {
     if (!session?.user?.id) return;
@@ -84,18 +76,13 @@ export default function Comments({
         body,
         target_version: typeof targetVersion === "number" ? targetVersion : null,
       } as any);
-      if (error) {
-        setPostError(error.message || "Failed to post comment");
-        return;
-      }
+      if (error) { setPostError(error.message || "Failed to post comment"); return; }
       setText("");
-      const { data, error: reloadErr } = await supabase
-        .from("review_comments")
-        .select("*")
-        .eq("case_id", caseId)
-        .order("created_at", { ascending: false })
-        .limit(100);
-      if (!reloadErr && Array.isArray(data)) setItems(data as CommentRow[]);
+      const res = await fetch(
+        `${SUPA_URL}/rest/v1/review_comments?select=*&case_id=eq.${caseId}&order=created_at.desc&limit=100`,
+        { headers: HDRS }
+      );
+      if (res.ok) setItems(await res.json());
       if (onPosted) await onPosted();
     } finally {
       setPosting(false);
@@ -120,10 +107,8 @@ export default function Comments({
         <div
           role="alert"
           className="mb-3 rounded-2xl border px-4 py-3 text-sm"
-          style={{
-            background: "color-mix(in oklab, var(--color-danger) 10%, transparent)",
-            borderColor: "color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))",
-          }}
+          style={{ background: "color-mix(in oklab, var(--color-danger) 10%, transparent)",
+                   borderColor: "color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))" }}
         >
           {loadError}
         </div>
@@ -149,12 +134,8 @@ export default function Comments({
           {items.map((c) => (
             <li key={c.id} className="rounded-2xl border p-3">
               <div className="mb-1 flex items-center justify-between">
-                <div className="text-sm font-medium">
-                  {c.by_user === session?.user?.id ? "You" : c.by_user}
-                </div>
-                <div className="muted text-xs">
-                  {new Date(c.created_at).toLocaleString()}
-                </div>
+                <div className="text-sm font-medium">{c.by_user === session?.user?.id ? "You" : c.by_user}</div>
+                <div className="muted text-xs">{new Date(c.created_at).toLocaleString()}</div>
               </div>
               <p className="text-[var(--color-text)]/95 whitespace-pre-line">{c.body}</p>
               {typeof c.target_version === "number" && (
@@ -167,18 +148,14 @@ export default function Comments({
 
       {canPost && (
         <div className="mt-4 space-y-2">
-          <label htmlFor="fb-tech" className="label">
-            Add feedback
-          </label>
+          <label htmlFor="fb-tech" className="label">Add feedback</label>
 
-        {!!postError && (
+          {!!postError && (
             <div
               role="alert"
               className="rounded-2xl border px-4 py-2 text-sm"
-              style={{
-                background: "color-mix(in oklab, var(--color-warning) 12%, transparent)",
-                borderColor: "color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))",
-              }}
+              style={{ background: "color-mix(in oklab, var(--color-warning) 12%, transparent)",
+                       borderColor: "color-mix(in oklab, var(--color-warning) 55%, var(--border-alpha))" }}
             >
               {postError}
             </div>
@@ -191,20 +168,13 @@ export default function Comments({
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDownTextarea}
             placeholder="Write clear, actionable feedback…"
-            disabled={posting || authLoading}
+            disabled={posting || !session?.user?.id}
             aria-busy={posting}
-            aria-describedby="comment-help"
           />
-          <div id="comment-help" className="muted text-xs">
-            Tip: Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd> to send.
-          </div>
+          <div className="muted text-xs">Tip: Ctrl/⌘ + Enter to send.</div>
 
           <div className="flex items-center justify-end gap-2">
-            <button
-              className="btn btn-primary"
-              onClick={submit}
-              disabled={!text.trim() || posting || !session?.user?.id}
-            >
+            <button className="btn btn-primary" onClick={submit} disabled={!text.trim() || posting || !session?.user?.id}>
               {posting ? "Sending…" : "Send"}
             </button>
           </div>
