@@ -1,7 +1,7 @@
 // app/tech/cases/[id]/components/Comments.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSupabaseBrowser } from "../../../../../../lib/supabaseBrowser";
 import useAuthSession from "../../../../../../hooks/useAuthSession";
 
@@ -30,57 +30,76 @@ export default function Comments({
 
   const [items, setItems] = useState<CommentRow[]>([]);
   const [text, setText] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [posting, setPosting] = useState(false);
+  const [loading, setLoading] = useState(true);        
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
 
+  const mountedRef = useRef(true);
   useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
-    (async () => {
-      setLoading(true);
-      setLoadError(null);
-      try {
-        await supabase.auth.getSession();
-        const { data, error } = await supabase
-          .from("review_comments")
-          .select("*")
-          .eq("case_id", caseId)
-          .order("created_at", { ascending: false })
-          .limit(100);
+  const loadComments = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      await supabase.auth.getSession();
+      const { data, error } = await supabase
+        .from("review_comments")
+        .select("*")
+        .eq("case_id", caseId)
+        .order("created_at", { ascending: false })
+        .limit(100);
 
-        if (error) throw error;
-        if (!cancelled) setItems((data ?? []) as CommentRow[]);
-      } catch (e: any) {
-        if (!cancelled) setLoadError(e?.message || "Failed to load comments");
-      } finally {
-        if (!cancelled) setLoading(false);
+      if (error) throw error;
+      if (mountedRef.current) {
+        setItems((data ?? []) as CommentRow[]);
+        setLoading(false);
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    } catch (e: any) {
+      if (mountedRef.current) {
+        setLoadError(e?.message || "Failed to load comments");
+        setLoading(false);
+      }
+    }
   }, [caseId, supabase]);
 
-  const reload = async () => {
+  useEffect(() => {
+    loadComments();
+  }, [loadComments]);
+
+  const reload = useCallback(async () => {
     const { data, error } = await supabase
       .from("review_comments")
       .select("*")
       .eq("case_id", caseId)
       .order("created_at", { ascending: false })
       .limit(100);
-    if (!error) setItems((data ?? []) as CommentRow[]);
-  };
+    if (!error && mountedRef.current) setItems((data ?? []) as CommentRow[]);
+  }, [caseId, supabase]);
 
-  const submit = async () => {
+  const submit = useCallback(async () => {
     if (!session?.user?.id) return;
     const body = text.trim();
     if (!body) return;
 
     setPosting(true);
     setPostError(null);
+
+    const optimistic: CommentRow = {
+      id: `optimistic-${crypto.randomUUID()}`,
+      case_id: caseId,
+      by_user: session.user.id,
+      body,
+      target_version: typeof targetVersion === "number" ? targetVersion : null,
+      created_at: new Date().toISOString(),
+    };
+    setItems((prev) => [optimistic, ...prev]);
+    setText("");
+
     try {
       await supabase.auth.getSession();
       const { error } = await supabase.from("review_comments").insert({
@@ -91,17 +110,17 @@ export default function Comments({
       } as any);
 
       if (error) {
+        setItems((prev) => prev.filter((c) => c.id !== optimistic.id));
         setPostError(error.message || "Failed to post comment");
         return;
       }
 
-      setText("");
       await reload();
       if (onPosted) await onPosted();
     } finally {
-      setPosting(false);
+      if (mountedRef.current) setPosting(false);
     }
-  };
+  }, [caseId, session?.user?.id, targetVersion, text, supabase, reload, onPosted]);
 
   const onKeyDownTextarea = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -110,6 +129,8 @@ export default function Comments({
     }
   };
 
+  const isEmpty = !loading && !loadError && items.length === 0;
+
   return (
     <section className="card-lg">
       <div className="mb-4 flex items-center justify-between">
@@ -117,6 +138,7 @@ export default function Comments({
         <span className="muted text-sm">{items.length}</span>
       </div>
 
+      {/* Error de carga con Retry */}
       {!!loadError && (
         <div
           role="alert"
@@ -126,18 +148,21 @@ export default function Comments({
             borderColor: "color-mix(in oklab, var(--color-danger) 55%, var(--border-alpha))",
           }}
         >
-          {loadError}
+          <div className="flex items-center justify-between gap-3">
+            <span>{loadError}</span>
+            <button className="btn btn-outline btn-sm" onClick={loadComments}>Retry</button>
+          </div>
         </div>
       )}
 
-      {loading && (
-        <div className="space-y-2">
+      {loading && items.length === 0 && (
+        <div className="space-y-2" aria-busy="true">
           <div className="skeleton h-8 w-full" />
           <div className="skeleton h-8 w-5/6" />
         </div>
       )}
 
-      {!loading && !loadError && items.length === 0 && (
+      {isEmpty && (
         <div className="empty">
           <div className="h-8 w-8 rounded-xl bg-white/5" />
           <p>No comments yet</p>
@@ -150,8 +175,12 @@ export default function Comments({
           {items.map((c) => (
             <li key={c.id} className="rounded-2xl border p-3">
               <div className="mb-1 flex items-center justify-between">
-                <div className="text-sm font-medium">{c.by_user === session?.user?.id ? "You" : c.by_user}</div>
-                <div className="muted text-xs">{new Date(c.created_at).toLocaleString()}</div>
+                <div className="text-sm font-medium">
+                  {c.by_user === session?.user?.id ? "You" : c.by_user}
+                </div>
+                <div className="muted text-xs">
+                  {new Date(c.created_at).toLocaleString()}
+                </div>
               </div>
               <p className="text-[var(--color-text)]/95 whitespace-pre-line">{c.body}</p>
               {typeof c.target_version === "number" && (
@@ -164,9 +193,7 @@ export default function Comments({
 
       {canPost && (
         <div className="mt-4 space-y-2">
-          <label htmlFor="fb-tech" className="label">
-            Add feedback
-          </label>
+          <label htmlFor="fb-tech" className="label">Add feedback</label>
 
           {!!postError && (
             <div
@@ -183,7 +210,7 @@ export default function Comments({
 
           <textarea
             id="fb-tech"
-            className="textarea min-h-[88px]"
+            className="textarea min-h=[88px]"
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDownTextarea}
